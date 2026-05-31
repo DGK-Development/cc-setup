@@ -1,0 +1,32 @@
+name: my-project            # erscheint im Report
+
+env:                        # optional, an alle Steps als Umgebungsvariablen gereicht
+  NODE_ENV: test
+
+stages:
+  # ----- GATE-Stage: Fehler hier blockt den Push (pre-push --gate-only) -----
+  - name: test
+    gate: true
+    steps:
+      - name: Lint
+        run: npm run lint
+      - name: Unit Tests
+        run: npm test
+        timeout: 300        # Sekunden (optional); Ueberschreitung = failed
+      - name: Typecheck
+        run: npm run typecheck
+        allow_failure: true # Fehler wird erfasst, gatet aber NICHT
+
+  # ----- DEPLOY-Stage: laeuft nur, wenn alle vorherigen Gates passed sind -----
+  - name: deploy
+    when: on_success        # always | on_success | on_failure | manual
+    steps:
+      - name: Build
+        run: npm run build
+      - name: Deploy
+        run: ./scripts/deploy.sh
+
+# Stacks: nur die `run`-Kommandos tauschen — Runner/Reporting bleiben gleich.
+#   Python : uv run pytest        / ruff check .
+#   Rust   : cargo test           / cargo clippy
+#   Go     : go test ./...        / go vet ./...

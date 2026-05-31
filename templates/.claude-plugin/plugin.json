@@ -1,0 +1,24 @@
+{
+  "name": "cc-setup",
+  "description": "PKM Claude Code setup: project-context + redactor strict mode + SPOC routing",
+  "version": "0.1.0",
+  "author": {
+    "name": "niclasedge"
+  },
+  "keywords": [
+    "pkm",
+    "obsidian",
+    "redactor",
+    "context-load",
+    "local-ci",
+    "localci"
+  ],
+  "userConfig": {
+    "obsidian_vault_path": {
+      "type": "string",
+      "title": "Obsidian vault path",
+      "description": "Absolute path to ObsidianPKM vault (TaskNotes + qmd)",
+      "default": ""
+    }
+  }
+}

@@ -1,0 +1,6 @@
+#!/bin/sh
+# localci pre-push gate — blockt den Push, wenn ein gegateter Step fehlschlaegt.
+# Aktivieren (nach menschlichem Review): git config core.hooksPath .localci/hooks
+# Umgehen (Debug): git push --no-verify
+ROOT="$(git rev-parse --show-toplevel)"
+LOCALCI_TRIGGER=pre-push exec uv run --script "$ROOT/.localci/localci.py" run --gate-only
