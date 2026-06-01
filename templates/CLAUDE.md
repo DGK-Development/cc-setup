@@ -4,7 +4,7 @@ Bundled plugin: project-context + redactor strict mode. Copy sections into proje
 
 ## Runtime-Vertrag
 
-1. Kontext laden (`/cc-setup:context-load` or SessionStart hook).
+1. Kontext laden — der **UserPromptSubmit**-Hook triggert `/cc-setup:context-load` beim ersten Prompt. (Der SessionStart-Hook druckt nur Projekt-Header + aktive TaskNotes und laedt selbst **keinen** Kontext.)
 2. Gate bestimmen (`/review routing` or cockpit).
 3. Genau eine naechste Aktion ausfuehren.
 4. Ergebnis in Task-Changelog, Daily oder Projekt-Changelog dokumentieren.

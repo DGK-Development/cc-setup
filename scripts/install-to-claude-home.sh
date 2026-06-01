@@ -26,6 +26,35 @@ if [[ -d "$PLUGIN_DEST/skills/local-ci" ]]; then
   sync_dir "$PLUGIN_DEST/skills/local-ci" "$LOCAL_CI_DEST" 1
 fi
 
+echo "==> global ~/.claude/CLAUDE.md (SPOC contract — managed block)"
+CONTRACT_SRC="$PLUGIN_DEST/bootstrap/CONTRACT.md"
+GLOBAL_CLAUDE="${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md"
+BEGIN_MARK="<!-- BEGIN cc-setup (managed by 'just install' — edits inside this block are overwritten) -->"
+END_MARK="<!-- END cc-setup -->"
+if [[ -f "$CONTRACT_SRC" ]]; then
+  TMP_BLOCK="$(mktemp)"
+  { echo "$BEGIN_MARK"; cat "$CONTRACT_SRC"; echo "$END_MARK"; } > "$TMP_BLOCK"
+  if [[ -f "$GLOBAL_CLAUDE" ]] && grep -qF "$BEGIN_MARK" "$GLOBAL_CLAUDE"; then
+    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v f="$TMP_BLOCK" '
+      function emit(){ while((getline line < f)>0) print line; close(f) }
+      $0==b { emit(); skip=1; next }
+      $0==e { skip=0; next }
+      skip { next }
+      { print }
+    ' "$GLOBAL_CLAUDE" > "$GLOBAL_CLAUDE.new" && mv "$GLOBAL_CLAUDE.new" "$GLOBAL_CLAUDE"
+    echo "             updated managed block in $GLOBAL_CLAUDE"
+  elif [[ -f "$GLOBAL_CLAUDE" ]]; then
+    { echo ""; cat "$TMP_BLOCK"; } >> "$GLOBAL_CLAUDE"
+    echo "             appended managed block (kept existing content) → $GLOBAL_CLAUDE"
+  else
+    cp "$TMP_BLOCK" "$GLOBAL_CLAUDE"
+    echo "             created $GLOBAL_CLAUDE"
+  fi
+  rm -f "$TMP_BLOCK"
+else
+  echo "             skip: $CONTRACT_SRC missing (run: just bundle)"
+fi
+
 AGENT_COUNT=0
 if [[ -d "$PLUGIN_DEST/agents" ]]; then
   AGENT_COUNT=$(find "$PLUGIN_DEST/agents" -maxdepth 1 -name '*.md' ! -name 'agent-index.md' 2>/dev/null | wc -l | tr -d ' ')
