@@ -273,14 +273,16 @@ def match_project_and_tns(repo: Path) -> tuple[bool, list[dict]]:
     if pr.returncode != 0:
         return False, []
     try:
-        projects = json.loads(pr.stdout)
+        projects = json.loads(pr.stdout).get("projects", [])
     except json.JSONDecodeError:
         return False, []
     repo_resolved = str(repo.resolve())
     project_id = None
     for proj in projects:
-        for wd in proj.get("working_dirs", []) or []:
-            if str(Path(os.path.expanduser(wd)).resolve()) == repo_resolved:
+        wd = proj.get("working_dir")
+        wd_list = wd if isinstance(wd, list) else ([wd] if wd else [])
+        for w in wd_list:
+            if str(Path(os.path.expanduser(w)).resolve()) == repo_resolved:
                 project_id = proj.get("id")
                 break
         if project_id:
@@ -293,7 +295,7 @@ def match_project_and_tns(repo: Path) -> tuple[bool, list[dict]]:
     if nr.returncode != 0:
         return True, []
     try:
-        tns = json.loads(nr.stdout)
+        tns = json.loads(nr.stdout).get("tasks", [])
     except json.JSONDecodeError:
         return True, []
     cands = [{"id": t.get("id"), "title": t.get("title"),
