@@ -17,8 +17,8 @@
     "obsidian_vault_path": {
       "type": "string",
       "title": "Obsidian vault path",
-      "description": "Absolute path to ObsidianPKM vault (TaskNotes + qmd)",
-      "default": ""
+      "description": "Absolute path to ObsidianPKM vault (TaskNotes + qmd). Optional if ~/GITHUB/ObsidianPKM exists — hooks fall back via resolve_vault().",
+      "default": "~/GITHUB/ObsidianPKM"
     }
   }
 }

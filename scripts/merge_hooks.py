@@ -47,6 +47,40 @@ def merge_event(
     return list(base or []) + list(extra or [])
 
 
+def patch_cc_hook_command(command: str) -> str:
+    """Drop user_config vault injection — lib.sh resolve_vault() has env + default fallback."""
+    import re
+
+    return re.sub(
+        r'^OBSIDIAN_VAULT_PATH="\$\{user_config\.obsidian_vault_path\}"\s+',
+        "",
+        command,
+    )
+
+
+def patch_cc_hooks(
+    hooks: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for event, entries in hooks.items():
+        patched_entries: list[dict[str, Any]] = []
+        for entry in entries:
+            new_entry = dict(entry)
+            hook_list = []
+            for h in entry.get("hooks", []):
+                if h.get("type") != "command":
+                    hook_list.append(h)
+                    continue
+                cmd = h.get("command", "")
+                new_h = dict(h)
+                new_h["command"] = patch_cc_hook_command(cmd)
+                hook_list.append(new_h)
+            new_entry["hooks"] = hook_list
+            patched_entries.append(new_entry)
+        out[event] = patched_entries
+    return out
+
+
 def main() -> int:
     if len(sys.argv) != 4:
         print(
@@ -58,7 +92,7 @@ def main() -> int:
     src = Path(sys.argv[1])
     dst = Path(sys.argv[2])
     data = json.loads(src.read_text(encoding="utf-8"))
-    cc_hooks: dict[str, list[dict[str, Any]]] = data.get("hooks", {})
+    cc_hooks: dict[str, list[dict[str, Any]]] = patch_cc_hooks(data.get("hooks", {}))
     redactor = build_redactor_hooks()
 
     merged: dict[str, list[dict[str, Any]]] = {}

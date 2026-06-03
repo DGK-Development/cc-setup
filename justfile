@@ -9,6 +9,10 @@ install:
 
 update: install
 
+# Installiert? Welche Version? Update nötig?
+status:
+    bash scripts/check-install-needed.sh || true
+
 # Nur Schritt 1 von install (manuell, selten nötig)
 sync-sources:
     bash scripts/sync-from-sources.sh

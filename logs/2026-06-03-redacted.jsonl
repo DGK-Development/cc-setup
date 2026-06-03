@@ -1,0 +1,3 @@
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T22:42:00+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T22:42:00+02:00"}
+{"command":"cat /Users/niclasedge/GITHUB_DG/cc-setup/.gitmodules","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:cat","ts":"2026-06-03T22:42:22+02:00"}

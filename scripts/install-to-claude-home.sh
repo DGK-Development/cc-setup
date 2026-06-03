@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib-sync.sh
 source "$ROOT/scripts/lib-sync.sh"
+# shellcheck source=lib-version.sh
+source "$ROOT/scripts/lib-version.sh"
 SRC="$ROOT/dist/cc-setup"
 CLAUDE_SKILLS="${CLAUDE_SKILLS:-$HOME/.claude/skills}"
 PLUGIN_DEST="${CC_SETUP_DEST:-$CLAUDE_SKILLS/cc-setup}"
@@ -21,6 +23,9 @@ echo "==> plugin cc-setup (hooks + context-load + scripts + bundled skills)"
 mkdir -p "$(dirname "$PLUGIN_DEST")"
 sync_dir "$SRC" "$PLUGIN_DEST" 1
 
+echo "==> plugin userConfig (cc-setup@skills-dir)"
+bash "$ROOT/scripts/configure-claude-plugin.sh" || true
+
 if [[ -d "$PLUGIN_DEST/skills/local-ci" ]]; then
   echo "==> flat skill local-ci (optional /local-ci without plugin prefix)"
   sync_dir "$PLUGIN_DEST/skills/local-ci" "$LOCAL_CI_DEST" 1
@@ -35,8 +40,17 @@ if [[ -d "$PLUGIN_DEST/skills" ]]; then
   SKILL_COUNT=$(find "$PLUGIN_DEST/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
 fi
 
+NEW_VER=""
+if [[ -f "$SRC/.claude-plugin/plugin.json" ]]; then
+  NEW_VER="$(plugin_version "$SRC/.claude-plugin/plugin.json" 2>/dev/null || true)"
+fi
+
 echo ""
-echo "Installed / updated (global — user-level, all projects):"
+if [[ -n "$NEW_VER" ]]; then
+  echo "Installed / updated → v${NEW_VER} (global — user-level, all projects):"
+else
+  echo "Installed / updated (global — user-level, all projects):"
+fi
 echo "  Plugin:  $PLUGIN_DEST"
 echo "             @skills-dir auto-load in every repo after trust/restart"
 echo "  Agents:  plugin agents/ → Agent tool in any project (not per-repo .claude/agents/)"

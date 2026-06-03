@@ -13,11 +13,14 @@ Ein Befehl für alles: **`just install`**
 
 **Agenten: global, nicht pro Projekt.** Sie liegen im User-Plugin unter `~/.claude/skills/cc-setup/agents/` und stehen in jeder Claude-Code-Session zur Verfügung (Agent-Tool → `developer`, `reviewer`, …). Projekt-spezifische Agenten wären erst in `<repo>/.claude/agents/` — das macht cc-setup bewusst nicht.
 
+**Version-Check:** Vor dem Install wird `templates/.claude-plugin/plugin.json` mit `~/.claude/skills/cc-setup/` verglichen. Gleiche Version → übersprungen. Neuere Repo-Version → Update-Install (Bundle + Deploy). `just status` zeigt den Stand.
+
 Sync steuern:
 - Interaktiv: `[Y/n]` in Schritt 1
 - `CC_SETUP_SYNC=1 just install` — immer sync
 - `CC_SETUP_SYNC=0 just install` — nie sync (nur Repo-templates)
 - `CC_SETUP_NONINTERACTIVE=1 just install` — sync aus, vault aus
+- `CC_SETUP_FORCE=1 just install` — immer neu installieren (Version-Check ignorieren)
 
 Danach: Claude Code neu starten oder `/reload-plugins`.
 

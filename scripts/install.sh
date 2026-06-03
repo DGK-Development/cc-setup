@@ -12,6 +12,16 @@ echo "║  cc-setup install                                            ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
+echo "▶ Version prüfen (~/.claude/skills/cc-setup vs templates/)"
+set +e
+bash "$ROOT/scripts/check-install-needed.sh"
+check_code=$?
+set -e
+if [[ "$check_code" -eq 1 || "$check_code" -eq 2 ]]; then
+  exit 0
+fi
+echo ""
+
 echo "▶ Schritt 1/4 — Quellen synchronisieren? (optional)"
 echo "  Würde Agenten/Skills aus ObsidianPKM + Cursor nach templates/ kopieren."
 echo ""
