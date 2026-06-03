@@ -4,9 +4,20 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
+
+# Skills-dir plugins (~/.claude/skills/<name>/) do NOT resolve ${user_config.*}
+# template variables — only marketplace plugins do. The vendored
+# cc-plugin-project-context hooks prefix their command with
+#   OBSIDIAN_VAULT_PATH="${user_config.obsidian_vault_path}" bash ...
+# which makes Claude Code abort the hook ("Plugin option ... isn't set").
+# cc-setup bundles that plugin as a skills-dir plugin, so we strip the
+# leading VAR="${user_config.*}" assignment. The hook script's resolve_vault()
+# falls back to $OBSIDIAN_VAULT_PATH (set in settings.json env) anyway.
+_USER_CONFIG_PREFIX = re.compile(r'^\w+="\$\{user_config\.[^}]+\}"\s+')
 
 # Mirrors hook-redactor/src/install.rs GLOBAL_HOOKS
 REDACTOR_HOOKS: list[tuple[str, str | None, str]] = [
@@ -24,6 +35,20 @@ REDACTOR_HOOKS: list[tuple[str, str | None, str]] = [
 
 def hook_entry(command: str) -> dict[str, Any]:
     return {"type": "command", "command": command}
+
+
+def sanitize_skillsdir_command(command: str) -> str:
+    """Drop the VAR="${user_config.*}" prefix unusable in skills-dir plugins."""
+    return _USER_CONFIG_PREFIX.sub("", command)
+
+
+def sanitize_event(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for entry in entries:
+        for hook in entry.get("hooks", []):
+            cmd = hook.get("command")
+            if isinstance(cmd, str):
+                hook["command"] = sanitize_skillsdir_command(cmd)
+    return entries
 
 
 def matcher_entry(matcher: str | None, command: str) -> dict[str, Any]:
@@ -47,40 +72,6 @@ def merge_event(
     return list(base or []) + list(extra or [])
 
 
-def patch_cc_hook_command(command: str) -> str:
-    """Drop user_config vault injection — lib.sh resolve_vault() has env + default fallback."""
-    import re
-
-    return re.sub(
-        r'^OBSIDIAN_VAULT_PATH="\$\{user_config\.obsidian_vault_path\}"\s+',
-        "",
-        command,
-    )
-
-
-def patch_cc_hooks(
-    hooks: dict[str, list[dict[str, Any]]],
-) -> dict[str, list[dict[str, Any]]]:
-    out: dict[str, list[dict[str, Any]]] = {}
-    for event, entries in hooks.items():
-        patched_entries: list[dict[str, Any]] = []
-        for entry in entries:
-            new_entry = dict(entry)
-            hook_list = []
-            for h in entry.get("hooks", []):
-                if h.get("type") != "command":
-                    hook_list.append(h)
-                    continue
-                cmd = h.get("command", "")
-                new_h = dict(h)
-                new_h["command"] = patch_cc_hook_command(cmd)
-                hook_list.append(new_h)
-            new_entry["hooks"] = hook_list
-            patched_entries.append(new_entry)
-        out[event] = patched_entries
-    return out
-
-
 def main() -> int:
     if len(sys.argv) != 4:
         print(
@@ -92,7 +83,9 @@ def main() -> int:
     src = Path(sys.argv[1])
     dst = Path(sys.argv[2])
     data = json.loads(src.read_text(encoding="utf-8"))
-    cc_hooks: dict[str, list[dict[str, Any]]] = patch_cc_hooks(data.get("hooks", {}))
+    cc_hooks: dict[str, list[dict[str, Any]]] = data.get("hooks", {})
+    for entries in cc_hooks.values():
+        sanitize_event(entries)
     redactor = build_redactor_hooks()
 
     merged: dict[str, list[dict[str, Any]]] = {}

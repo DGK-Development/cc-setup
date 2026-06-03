@@ -42,6 +42,8 @@ echo "==> plugin manifest + docs"
 cp "$TEMPLATES/.claude-plugin/plugin.json" "$OUT/.claude-plugin/plugin.json"
 mkdir -p "$OUT/bootstrap"
 cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CLAUDE.md"
+# Slim contract (no redactor appendix) — source for the global ~/.claude/CLAUDE.md.
+cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CONTRACT.md"
 if [[ -d "$TEMPLATES/agents" ]]; then
   rsync -a "$TEMPLATES/agents/" "$OUT/agents/"
 fi

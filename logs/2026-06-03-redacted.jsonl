@@ -1,3 +1,13 @@
-{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T22:42:00+02:00"}
-{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T22:42:00+02:00"}
-{"command":"cat /Users/niclasedge/GITHUB_DG/cc-setup/.gitmodules","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:cat","ts":"2026-06-03T22:42:22+02:00"}
+{"command":"/home/nedge/git/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T19:47:20+02:00"}
+{"command":"/home/nedge/git/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T21:04:05+02:00"}
+{"command":"bash -c  cd /home/nedge/git/cc-setup echo \"=== superproject branch ===\"; git rev-parse --abbrev-ref ...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-03T21:14:50+02:00"}
+{"command":"bash -c  cd /home/nedge/git/cc-setup echo \"=== superproject branch ===\"; git rev-parse --abbrev-ref ...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-03T21:14:50+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup/vendor/cc-plugin-project-context show --stat 8d0f483","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T21:20:25+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup/vendor/cc-plugin-project-context show --stat 58c1d04","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T21:26:05+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup/vendor/cc-plugin-project-context show --stat 1079d2a","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T21:30:20+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup/vendor/cc-plugin-project-context show --stat a82d278","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T21:35:16+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup/vendor/cc-plugin-project-context show --stat 27f1cd7","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T21:42:46+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup show eb12570 --stat","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T22:01:15+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup show eb12570 -- CLAUDE.md","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T22:02:16+02:00"}
+{"command":"git -C /home/nedge/git/cc-setup show eb12570 -- templates/agents/agent-index.md","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T22:02:18+02:00"}
+{"command":"/home/nedge/git/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T22:04:08+02:00"}
