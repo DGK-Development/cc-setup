@@ -27,6 +27,9 @@ sieht.
 | 8 | auto_commit | `false` (kein Commit-Rauschen; bewusste Commits) |
 | 9 | Einstieg | Bestandsaufnahme zuerst (Survey-JSON), dann Frage neu/fortsetzen |
 | 10 | Milestone-Name | `"<tn-id>: <kurztitel>"` (tn-id als stabiler Sprint-Key) |
+| 11 | Projekt-Match | CWD-Repo-Pfad ↔ Projekt-`Working Dir`/`Repo` (tasknotes-Metadaten) |
+| 12 | tn-Status nach Finish | `in-review` (wenn alle Backlog-Tasks implementiert), nicht `done` |
+| 13 | Changelog | je implementierter Subtask ein tn-Changelog-Eintrag bei Finish |
 
 ## Zwei-Ebenen-Modell
 
@@ -67,6 +70,10 @@ Subcommands:
   ```
   Quellen: `backlog milestone list --plain` + `backlog task list -m <m> --plain` (offene
   Tasks je Milestone), `tasknotes_cli.py next` (project-gefiltert, top 5). Read-only.
+  **Projekt-Match:** CWD-Repo-Pfad (`resolve-repo`) wird gegen die `Working Dir`- und
+  `Repo`-Metadaten der tasknotes-Projekte gematcht (ein Projekt kann mehrere Working Dirs
+  haben). Treffer → `candidate_tns` aus diesem Projekt. Kein Pfad-Treffer → `candidate_tns`
+  leer + Flag `project_matched: false` (Skill bietet dann freie Auswahl aller tns an).
 
 - **`resolve-repo`** → `git rev-parse --show-toplevel`; prüft ob `backlog/config.yml`
   existiert; liefert `{ repo, prefix, initialized }`. Kein Abbruch bei fehlendem Backlog.
@@ -78,8 +85,13 @@ Subcommands:
 - **`status [--repo .]`** → liest `milestone list` + Parent-Status für den aktiven
   Sprint des Repos → `{ milestone, done, total, next_open_task }`.
 
-- **`sync-finish --tn <path>`** → zieht Parent-`Final Summary` + Completion in die tn
-  (Final-Summary-Sektion + `sprint_status: done`, tn-Status → `audit`), atomar.
+- **`sync-finish --tn <path>`** → zieht Parent-`Final Summary` + Completion in die tn,
+  atomar:
+  - tn-Status → **`in-review`** (sobald alle Backlog-Subtasks `Done`/implementiert sind),
+    nicht `done` — Review-Gate bleibt beim User.
+  - `sprint_status: done`.
+  - **je implementiertem Subtask ein tn-Changelog-Eintrag** (Datum, `<ccs-id>`: Titel),
+    plus die Parent-`Final Summary` in die tn-Final-Summary-Sektion.
 
 Konvention: Schreibende Backlog-Operationen laufen **nur über die `backlog`-CLI**
 (nie direktes File-Editing in `backlog/tasks/`). Survey/Status lesen read-only.
@@ -102,8 +114,10 @@ Konvention: Schreibende Backlog-Operationen laufen **nur über die `backlog`-CLI
 ### Skill `/sprint-finish` (in-session, PM)
 
 1. Aktiven Sprint aus CWD-Repo + tn-Pointern auflösen.
-2. Backlog-Stand zusammenfassen (offene/erledigte Subtasks).
-3. `sprint_bridge sync-finish` → Final Summary zurück in tn, Status setzen.
+2. Backlog-Stand zusammenfassen (offene/erledigte Subtasks). Sind noch Subtasks offen →
+   Hinweis + Wahl (trotzdem in-review / abbrechen).
+3. `sprint_bridge sync-finish` → Final Summary + je-Subtask-Changelog zurück in tn,
+   tn-Status → `in-review`.
 4. **Kein Git.** Branch/PR/Push bleiben bei User + `/finalize` + Developer-Subagent.
 
 ### context-load-Integration (Layer 1.5)
@@ -122,7 +136,8 @@ aktiven Sprint hat. Rein additiv, no-op außerhalb von Repos.
         → sprint_bridge bind → tn.frontmatter: sprint_status=active, backlog_*
 [Arbeit: Developer-Subagent · backlog task edit --check-ac · To Do→In Progress→Done]
 context-load → Layer 1.5 zeigt Sprint-Fortschritt bei jeder Repo-Session
-/sprint-finish → sync-finish → tn.Final Summary + sprint_status=done
+/sprint-finish → sync-finish → tn.Final Summary + je-Subtask-Changelog
+              → tn-Status=in-review, sprint_status=done
 ```
 
 ## Fehlerbehandlung & Edge Cases
