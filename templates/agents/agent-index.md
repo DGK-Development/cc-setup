@@ -17,6 +17,7 @@ Subagents live in `agents/*.md`. Invoke via Claude Code **Agent** tool (SPOC dis
 | Weekly review | **weekly-reviewer** | `agents/weekly-reviewer.md` |
 | Inbox / GTD capture | **inbox-processor** | `agents/inbox-processor.md` |
 | Vault hygiene, dedup | **note-organizer** | `agents/note-organizer.md` |
+| Sprint planen, Backlog dekomponieren | **PM** (in-session `/sprint-start`; helper: `project-manager-backlog`) | — |
 
 In-session roles (no subagent): Context-Engineer, PM, Teacher — see skill `/cc-setup:cc-setup`.
 
