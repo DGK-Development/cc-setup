@@ -34,7 +34,7 @@ sync-local-ci:
 pull:
     git submodule update --init --remote
 
-bundle: pull
+bundle:
     bash scripts/bundle.sh
 
 # Vault nachträglich setzen (ohne vollständigen Setup-Durchlauf)

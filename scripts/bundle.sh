@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# bundle.sh — pull submodules, assemble dist/cc-setup plugin for @skills-dir install.
+# bundle.sh — assemble dist/cc-setup plugin for @skills-dir install (repo-local sources).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENDOR_CTX="$ROOT/vendor/cc-plugin-project-context"
 VENDOR_REDACTOR="$ROOT/vendor/hook-redactor"
 OUT="$ROOT/dist/cc-setup"
 TEMPLATES="$ROOT/templates"
 
 die() { echo "bundle: $*" >&2; exit 1; }
 
-echo "==> submodule update (pull latest)"
-git -C "$ROOT" submodule update --init --remote
-
-[[ -d "$VENDOR_CTX" ]] || die "missing $VENDOR_CTX — run: git submodule update --init"
 [[ -d "$VENDOR_REDACTOR" ]] || die "missing $VENDOR_REDACTOR — run: git submodule update --init"
 
 if ! command -v redactor >/dev/null 2>&1; then
@@ -30,11 +25,32 @@ echo "==> clean $OUT"
 rm -rf "$OUT"
 mkdir -p "$OUT/.claude-plugin"
 
-echo "==> copy cc-plugin-project-context assets"
-for dir in hooks skills commands scripts; do
-  if [[ -d "$VENDOR_CTX/$dir" ]]; then
+echo "==> copy project-context assets (repo-local)"
+# hooks + commands: vollständig repo-lokal kopieren.
+for dir in hooks commands; do
+  if [[ -d "$ROOT/$dir" ]]; then
     rsync -a --exclude '__pycache__' --exclude '*.pyc' \
-      "$VENDOR_CTX/$dir/" "$OUT/$dir/"
+      "$ROOT/$dir/" "$OUT/$dir/"
+  fi
+done
+
+# skills: context-load kommt über den templates/skills-Copy weiter unten — kein eigener Schritt hier.
+
+# scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, setup.sh, install.sh, …).
+mkdir -p "$OUT/scripts"
+RUNTIME_SCRIPTS=(
+  context-resolve.py
+  sprint_bridge.py
+  qmd-ensure.sh
+  wiki-tier-extract.py
+  nightly-reindex.sh
+  lib.sh
+  tasknotes_cli.py
+  context-deps.sh
+)
+for f in "${RUNTIME_SCRIPTS[@]}"; do
+  if [[ -f "$ROOT/scripts/$f" ]]; then
+    cp "$ROOT/scripts/$f" "$OUT/scripts/$f"
   fi
 done
 
@@ -63,8 +79,8 @@ if [[ -f "$TEMPLATES/settings.json" ]]; then
 fi
 
 echo "==> merge hooks (project-context + redactor)"
-python3 "$ROOT/scripts/merge_hooks.py" \
-  "$VENDOR_CTX/hooks/hooks.json" \
+uv run python3 "$ROOT/scripts/merge_hooks.py" \
+  "$ROOT/hooks/hooks.json" \
   "$OUT/hooks/hooks.json" \
   merged
 
