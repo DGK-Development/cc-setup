@@ -1,6 +1,3 @@
 [submodule "vendor/hook-redactor"]
 	path = vendor/hook-redactor
 	url = git@github-dgk:DGK-Development/hook-redactor.git
-[submodule "vendor/cc-plugin-project-context"]
-	path = vendor/cc-plugin-project-context
-	url = git@github.com:niclasedge/cc-plugin-project-context.git
