@@ -2,3 +2,10 @@ dist/
 .DS_Store
 *.pyc
 __pycache__/
+
+# git mergetool scratch files
+*_BACKUP_*
+*_BASE_*
+*_LOCAL_*
+*_REMOTE_*
+*.orig
