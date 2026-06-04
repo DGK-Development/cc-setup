@@ -193,6 +193,12 @@ for skill_src in "$DIST/skills"/*/; do
   [[ -d "$skill_src" ]] || continue
   skill_name=$(basename "$skill_src")
   rsync -a --delete "$skill_src" "$SKILLS_DIR/$skill_name/"
+  # Defensiv: verbleibendes ${CLAUDE_PLUGIN_ROOT} in deployter SKILL.md → absoluter Flat-Pfad
+  skill_md="$SKILLS_DIR/$skill_name/SKILL.md"
+  if [[ -f "$skill_md" ]] && grep -qF '${CLAUDE_PLUGIN_ROOT}' "$skill_md"; then
+    sed "s|\${CLAUDE_PLUGIN_ROOT}|$CC_SETUP_DIR|g" "$skill_md" > "$skill_md.new" \
+      && mv "$skill_md.new" "$skill_md"
+  fi
   SKILL_NAMES+=("$skill_name")
 done
 info "Skills (${#SKILL_NAMES[@]}): ${SKILL_NAMES[*]}"
