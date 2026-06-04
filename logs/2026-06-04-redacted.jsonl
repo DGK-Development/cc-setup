@@ -7,3 +7,11 @@
 {"command":"bash -c  V=\"/Users/niclasedge/GITHUB_DG/cc-setup/vendor/cc-plugin-project-context\" echo \"=== vendor ...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T21:18:39+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T21:31:17+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T21:39:32+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T22:16:24+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T22:17:39+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T22:18:30+02:00"}
+{"command":"bash -c cd \"/Users/niclasedge/GITHUB_DG/cc-setup\"; echo \"=== branch + status ===\"; git status -sb 2>...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:19:28+02:00"}
+{"command":"bash -c cd \"/Users/niclasedge/GITHUB_DG/cc-setup\"; echo \"=== branch ahead/behind origin ===\"; git re...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:19:45+02:00"}
+{"command":"bash -c cd \"/Users/niclasedge/GITHUB_DG/cc-setup\"; echo \"=== branch ahead/behind origin ===\"; git re...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:19:45+02:00"}
+{"command":"-","count":9,"mode":"json","rule":"json_leaves","sample":"leaves=9 list_truncated=1","source":"/Users/niclasedge/GITHUB_DG/cc-setup/templates/.claude-plugin/plugin.json","ts":"2026-06-04T22:28:30+02:00"}
+{"command":"bash -c echo \"=== .gitmodules ===\"; cat \"/Users/niclasedge/GITHUB_DG/cc-setup/.gitmodules\" 2>/dev/nu...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:31:32+02:00"}
