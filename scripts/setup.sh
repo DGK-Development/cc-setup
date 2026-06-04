@@ -228,11 +228,12 @@ done
 # Skill-Referenz de-namespacen: /project-context:context-load → /context-load
 USERPROMPT_HOOK="$CC_SETUP_DIR/hooks/userprompt-context-match.sh"
 if [[ -f "$USERPROMPT_HOOK" ]]; then
-  sed -i \
+  sed \
     -e 's|/project-context:context-load|/context-load|g' \
     -e 's|/cc-setup:context-load|/context-load|g' \
     -e 's|(plugin)|(flat install)|g' \
-    "$USERPROMPT_HOOK"
+    "$USERPROMPT_HOOK" > "$USERPROMPT_HOOK.tmp" \
+    && mv "$USERPROMPT_HOOK.tmp" "$USERPROMPT_HOOK"
 fi
 
 chmod +x "$CC_SETUP_DIR"/hooks/*.sh 2>/dev/null || true
@@ -291,7 +292,7 @@ INJECT_CMD="bash \"$CC_SETUP_DIR/hooks/inject-project-context.sh\""
 USERPROMPT_CMD="bash \"$CC_SETUP_DIR/hooks/userprompt-context-match.sh\""
 STOP_CMD="bash \"$CC_SETUP_DIR/hooks/stop-workflow.sh\""
 
-python3 - "$SETTINGS_JSON" "$INJECT_CMD" "$USERPROMPT_CMD" "$VAULT" "$STOP_CMD" <<'PYEOF'
+uv run python3 - "$SETTINGS_JSON" "$INJECT_CMD" "$USERPROMPT_CMD" "$VAULT" "$STOP_CMD" <<'PYEOF'
 import json, sys
 from pathlib import Path
 
@@ -365,7 +366,8 @@ if ! grep -qF "$MARKER" "$PROFILE" 2>/dev/null; then
   info "Shell-Profil: OBSIDIAN_VAULT_PATH hinzugefügt → $PROFILE"
 else
   # Vorhandenen Vault-Pfad aktualisieren
-  sed -i "s|^export OBSIDIAN_VAULT_PATH=.*|export OBSIDIAN_VAULT_PATH=\"$VAULT\"|" "$PROFILE"
+  sed "s|^export OBSIDIAN_VAULT_PATH=.*|export OBSIDIAN_VAULT_PATH=\"$VAULT\"|" "$PROFILE" > "$PROFILE.tmp" \
+    && mv "$PROFILE.tmp" "$PROFILE"
   info "Shell-Profil: OBSIDIAN_VAULT_PATH aktualisiert → $PROFILE"
 fi
 
