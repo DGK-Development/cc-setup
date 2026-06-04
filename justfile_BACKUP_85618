@@ -1,0 +1,61 @@
+# cc-setup — Skills + Agents + Hooks installieren (kein Plugin)
+
+default:
+    @just --list
+
+# Einmal-Setup: Skills + Agents + Hooks + Vault (kein Plugin)
+setup vault="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "{{vault}}" ]]; then
+      bash scripts/setup.sh --vault "{{vault}}"
+    else
+      bash scripts/setup.sh
+    fi
+
+# Nur Dep-Status prüfen (keine Änderungen)
+check:
+    bash scripts/setup.sh --check
+
+update: setup
+
+# Legacy: Plugin-basiertes Install (sync → bundle → ~/.claude/skills als Plugin)
+install:
+    bash scripts/install.sh
+
+<<<<<<< HEAD
+update: install
+
+# Installiert? Welche Version? Update nötig?
+status:
+    bash scripts/check-install-needed.sh || true
+
+=======
+>>>>>>> 2ac951cefe14783a8c66c3e0a0c5306ada9cbbf4
+# Nur Schritt 1 von install (manuell, selten nötig)
+sync-sources:
+    bash scripts/sync-from-sources.sh
+
+sync-local-ci:
+    bash scripts/sync-local-ci.sh
+    bash scripts/patch-local-ci-paths.sh
+
+pull:
+    git submodule update --init --remote
+
+bundle: pull
+    bash scripts/bundle.sh
+
+# Vault nachträglich setzen (ohne vollständigen Setup-Durchlauf)
+install-vault vault="$HOME/GITHUB/ObsidianPKM":
+    bash scripts/setup.sh --vault "{{vault}}"
+
+validate: bundle
+    claude plugin validate "{{justfile_directory()}}/dist/cc-setup"
+
+dev:
+    claude --plugin-dir "{{justfile_directory()}}/dist/cc-setup"
+
+# Sprint-Bridge-Tests
+test:
+    cd vendor/cc-plugin-project-context/scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py -v

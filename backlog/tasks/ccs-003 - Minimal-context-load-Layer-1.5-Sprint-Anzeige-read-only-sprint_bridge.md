@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-03 22:29'
-updated_date: '2026-06-04 19:23'
+updated_date: '2026-06-04 19:36'
 labels: []
 dependencies: []
 references:
@@ -59,6 +59,8 @@ context-load SKILL.md: Layer 1.5 zwischen Layer 1/2; SPRINT-Pfadvar; Output-Bloc
 | Reproduzierbarer Test-Harness ~/cc-ctxtest (git-reset/run) | ✅ |
 | Source-Propagation vendor-Submodul (commit+push) | ⬜ offen — Human-Review |
 | just bundle + install (durable) | ⬜ offen |
+
+2026-06-04 21:35: Layer-1.5-Arbeit lokal committet — Submodul cc-plugin-project-context main=7b0f6b3 (next-task-in-order + status-Intent + SessionStart-Backlog-Block), Parent feat/session-analyser-flat-install=b3b64b6 (Pointer). Beide UNGEPUSHT (Org-Regel: Push/Review erst in separater Session). SessionStart (inject-project-context.sh) zeigt jetzt auto Milestone + Nächsten Task via sprint_bridge status. Follow-up CCS-004 (Wiki-Topic-Notes + qmd-Verify) angelegt.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
