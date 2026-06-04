@@ -52,10 +52,10 @@ if [[ -d "$TEMPLATES/skills" ]]; then
   rsync -a "$TEMPLATES/skills/" "$OUT/skills/"
 fi
 
-echo "==> bundle session-analyser script (single source of truth: scripts/)"
+echo "==> bundle audit script (single source of truth: scripts/session_analyze.py)"
 if [[ -f "$ROOT/scripts/session_analyze.py" ]]; then
-  mkdir -p "$OUT/skills/session-analyser/scripts"
-  cp "$ROOT/scripts/session_analyze.py" "$OUT/skills/session-analyser/scripts/session_analyze.py"
+  mkdir -p "$OUT/skills/audit/scripts"
+  cp "$ROOT/scripts/session_analyze.py" "$OUT/skills/audit/scripts/session_analyze.py"
 fi
 
 if [[ -f "$TEMPLATES/settings.json" ]]; then
