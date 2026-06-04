@@ -17,8 +17,13 @@ Nur der **User** setzt Tasks auf `done` — du meldest `verify`-ready und wartes
    |---|---|---|---|---|
    | `npm run test:unit -- --run` | `npm test -- --passWithNoTests` | `python -m pytest -q --tb=short` | `go test ./... -count=1` | `make test` |
 
-2. **Commit** — nur wenn der User es will (oder Branch ≠ main). `type(scope): …` mit
-   Aenderungen + Test-Status. Keine `.env`/`*.key`. PRs merged der User selbst.
+2. **Commit** — **nur auf explizites User-Signal**, nie automatisch (auch nicht auf
+   Feature-Branches). `type(scope): …` mit Aenderungen + Test-Status. Keine `.env`/`*.key`.
+   Substanzielle Artefakte (z. B. neue Backlog-Milestones) nie stillschweigend committen.
+3. **Push** — **nie automatisch.** Push ist ein manueller, menschlicher Schritt nach
+   Review (Human-Oversight-Pflicht). Bei geänderten Submodul-Pointern vor dem Push
+   prüfen, dass der referenzierte Submodul-Commit auf dem Submodul-Remote existiert
+   (`stop-workflow.sh:submodule_push_guard`). PRs merged der User selbst.
 
 ## 2. Lessons-Learned dokumentieren
 
@@ -47,7 +52,7 @@ Protocol lesen + ausfuehren: `$HOME/GITHUB/ObsidianPKM/.claude/PKM_SYNC_PROTOCOL
 | Session-Eintrag | max 3 Zeilen / 300 Zeichen; Routing nach `ACTIVE_KIND` |
 | Resume State | nur bei echtem Re-entry; nur bei TaskNotes |
 | Lessons/Decisions | Scope-Routing §3-4; nur Neues |
-| Git | nur wenn Repo; User merged selbst bei PRs |
+| Git | Commit nur auf User-Signal; **nie auto-push** — Push macht der Mensch nach Review; User merged PRs selbst |
 
 Manueller Abschluss ohne Hook:
 

@@ -3,9 +3,11 @@ id: CCS-008
 title: >-
   session-end sync-hook: kein Auto-Push/Commit ungeprüfter Branches (Review-Gate
   + Submodul-Safety)
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-06-04 20:57'
+updated_date: '2026-06-04 21:21'
 labels:
   - infra
   - safety
@@ -26,7 +28,16 @@ stop-workflow.sh übergibt an einen inline-Claude (session-stop), der automatisc
 - [ ] #1 Sync-Hook pusht keinen Branch mit ungeprüften/unreviewed Commits automatisch (Opt-in statt Opt-out)
 - [ ] #2 Beim Pushen eines Parent-Commits mit geändertem Submodul-Gitlink wird verifiziert, dass der referenzierte Submodul-Commit auf dem Submodul-Remote existiert (sonst Abbruch + Hinweis)
 - [ ] #3 Auto-Commit substanzieller Artefakte (z.B. neue Backlog-Milestones) nur mit explizitem Signal, nicht stillschweigend bei jedem Stop
+- [ ] #4 pkm-sync-stop.sh + stop-workflow.sh aus ~/.claude/hooks/ als managed source ins Repo vendored (hooks/), gehaertet
+- [ ] #5 setup.sh deployt den Stop-Hook (kopiert vendored Stop-Scripts + traegt Stop-Event in settings.json ein)
+- [ ] #6 templates/skills/session-stop/SKILL.md: Commit-Regel Branch!=main->auto entfernt, Push nur explizit, Submodul-Pointer-Check als Anweisung
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope-Entscheidung (User 2026-06-04): Sync-Hooks liegen aktuell NUR in ~/.claude/hooks/ (pkm-sync-stop.sh, stop-workflow.sh), nicht im Repo. Entscheidung: ins cc-setup-Repo vendoren + via setup.sh deployen (cc-setup wird Single-Source auch fuer Stop-Hook). Push-Gate-Mechanik: NIE auto-pushen (commit-only lokal); Push immer manuell/human; substanzielle Auto-Commits nur mit explizitem Signal. Live-Hooks in ~/.claude/ werden NICHT angefasst (Deploy-Grenze: nur Repo + Test-Home).
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

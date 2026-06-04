@@ -11,7 +11,7 @@
 #   ~/.claude/skills/<name>/    — Skills flach (kein Plugin-Namespace)
 #   ~/.claude/agents/*.md       — Agents direkt
 #   ~/.claude/skills/cc-setup/  — Scripts + Hooks (auch cc-setup SPOC-Skill)
-#   ~/.claude/settings.json     — Hooks (SessionStart + UserPromptSubmit)
+#   ~/.claude/settings.json     — Hooks (SessionStart + UserPromptSubmit + Stop)
 #   ~/.claude/CLAUDE.md         — Managed SPOC-Contract-Block
 #   ~/.bashrc / ~/.zshrc        — OBSIDIAN_VAULT_PATH Export
 
@@ -286,11 +286,12 @@ if [[ -f "$CONTRACT_SRC" ]]; then
   rm -f "$TMP_CONTRACT" "$TMP_BLOCK"
 fi
 
-# 5b — Hooks in ~/.claude/settings.json (nur cc-setup SessionStart + UserPromptSubmit)
+# 5b — Hooks in ~/.claude/settings.json (cc-setup SessionStart + UserPromptSubmit + Stop)
 INJECT_CMD="bash \"$CC_SETUP_DIR/hooks/inject-project-context.sh\""
 USERPROMPT_CMD="bash \"$CC_SETUP_DIR/hooks/userprompt-context-match.sh\""
+STOP_CMD="bash \"$CC_SETUP_DIR/hooks/stop-workflow.sh\""
 
-python3 - "$SETTINGS_JSON" "$INJECT_CMD" "$USERPROMPT_CMD" "$VAULT" <<'PYEOF'
+python3 - "$SETTINGS_JSON" "$INJECT_CMD" "$USERPROMPT_CMD" "$VAULT" "$STOP_CMD" <<'PYEOF'
 import json, sys
 from pathlib import Path
 
@@ -298,6 +299,7 @@ settings_path  = Path(sys.argv[1])
 inject_cmd     = sys.argv[2]
 userprompt_cmd = sys.argv[3]
 vault          = sys.argv[4]
+stop_cmd       = sys.argv[5]
 
 settings = {}
 if settings_path.exists():
@@ -307,7 +309,7 @@ if settings_path.exists():
         pass
 
 # cc-setup Hooks (alte Einträge entfernen, neue vorne eintragen)
-markers = ("inject-project-context", "userprompt-context-match", "CLAUDE_PLUGIN_ROOT")
+markers = ("inject-project-context", "userprompt-context-match", "stop-workflow", "CLAUDE_PLUGIN_ROOT")
 
 def remove_cc_hooks(entries):
     return [e for e in entries if not any(m in json.dumps(e) for m in markers)]
@@ -318,6 +320,9 @@ cc_hooks = {
     ],
     "UserPromptSubmit": [
         {"hooks": [{"type": "command", "command": userprompt_cmd, "timeout": 10}]},
+    ],
+    "Stop": [
+        {"hooks": [{"type": "command", "command": stop_cmd, "timeout": 60}]},
     ],
 }
 
