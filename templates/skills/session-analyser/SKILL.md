@@ -31,11 +31,14 @@ CWD → session dir → session_analyze.py (deterministic) → aggregate JSON
 ### Step 1 — Run the extractor
 
 ```bash
-redactor wrap -- uv run --script scripts/session_analyze.py --output-json \
+SA="$HOME/.claude/skills/session-analyser/scripts/session_analyze.py"
+[ -f "$SA" ] || SA="${CLAUDE_PLUGIN_ROOT}/skills/session-analyser/scripts/session_analyze.py"
+redactor wrap -- uv run --script "$SA" --output-json \
   --projects-dir "$HOME/.claude/projects" --cwd "$PWD" > /tmp/session-agg.json
 ```
 
-The script is in `scripts/session_analyze.py` (cc-setup repo root).
+The analyser is bundled with this skill at `skills/session-analyser/scripts/session_analyze.py`
+(single source of truth: `scripts/session_analyze.py` in the cc-setup repo, copied at bundle time).
 It derives the encoded project path from CWD automatically.
 Output: JSON aggregate with:
 - `failed_commands` — tool calls that returned `is_error: true`

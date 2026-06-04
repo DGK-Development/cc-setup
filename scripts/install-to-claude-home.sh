@@ -26,9 +26,17 @@ sync_dir "$SRC" "$PLUGIN_DEST" 1
 echo "==> plugin userConfig (cc-setup@skills-dir)"
 bash "$ROOT/scripts/configure-claude-plugin.sh" || true
 
-if [[ -d "$PLUGIN_DEST/skills/local-ci" ]]; then
-  echo "==> flat skill local-ci (optional /local-ci without plugin prefix)"
-  sync_dir "$PLUGIN_DEST/skills/local-ci" "$LOCAL_CI_DEST" 1
+echo "==> flat skills (each usable as /<name> without plugin prefix)"
+if [[ -d "$PLUGIN_DEST/skills" ]]; then
+  for skill_dir in "$PLUGIN_DEST/skills"/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    name="$(basename "$skill_dir")"
+    # Skip the cc-setup SPOC skill — its flat dest ($CLAUDE_SKILLS/cc-setup) would
+    # collide with the plugin root installed at the same path.
+    [[ "$name" == "cc-setup" ]] && continue
+    sync_dir "$skill_dir" "$CLAUDE_SKILLS/$name" 1
+    echo "    ✓ /$name"
+  done
 fi
 
 echo "==> global ~/.claude/CLAUDE.md (SPOC contract — managed block)"
@@ -84,10 +92,9 @@ echo "  Plugin:  $PLUGIN_DEST"
 echo "             @skills-dir auto-load in every repo after trust/restart"
 echo "  Agents:  plugin agents/ → Agent tool in any project (not per-repo .claude/agents/)"
 echo ""
-echo "  Skills via plugin (namespaced): $SKILL_COUNT dirs under skills/"
-echo "    /cc-setup:context-load   /cc-setup:review   /cc-setup:qmd   …"
-echo "    /cc-setup:local-ci       CI templates"
-echo "    /cc-setup:cc-setup       SPOC routing"
+echo "  Skills (flat — primary): $SKILL_COUNT skills installed as /<name>"
+echo "    /context-load   /review   /qmd   /session-analyser   /local-ci   …"
+echo "    (also still reachable namespaced via the plugin: /cc-setup:<name>)"
 echo ""
 echo "  Agents (subagents): $AGENT_COUNT under agents/"
 if [[ -d "$PLUGIN_DEST/agents" ]]; then

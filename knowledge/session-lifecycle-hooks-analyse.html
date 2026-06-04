@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cc-setup — Session-Lifecycle, Hooks &amp; Skills</title>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { curve: "basis" } });
+</script>
+<style>
+  :root{
+    --bg:#fafaf9; --fg:#1c1917; --muted:#57534e; --line:#e7e5e4;
+    --accent:#2563eb; --warn:#b91c1c; --warnbg:#fef2f2; --okbg:#f0fdf4; --ok:#15803d;
+    --card:#fff; --code:#f5f5f4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1c1917; --fg:#e7e5e4; --muted:#a8a29e; --line:#292524;
+      --card:#262320; --code:#1a1816; --warnbg:#2a1414; --okbg:#13241a; }
+  }
+  *{box-sizing:border-box}
+  body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); margin:0; padding:0 1rem;}
+  .wrap{max-width:960px; margin:0 auto; padding:2.5rem 0 5rem;}
+  h1{font-size:1.9rem; line-height:1.2; margin:0 0 .3rem;}
+  h2{font-size:1.35rem; margin:2.6rem 0 .8rem; padding-top:.6rem; border-top:1px solid var(--line);}
+  h3{font-size:1.05rem; margin:1.6rem 0 .4rem;}
+  .sub{color:var(--muted); margin:0 0 1.5rem;}
+  p{margin:.5rem 0;}
+  code{background:var(--code); padding:.1em .35em; border-radius:4px; font-size:.86em;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:1rem 1.2rem; margin:1rem 0;}
+  .mermaid{background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:1rem; margin:1rem 0; overflow-x:auto;}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; margin:1rem 0;}
+  th,td{border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top;}
+  th{background:var(--code);}
+  .dup{color:var(--warn); font-weight:600;}
+  .tag{display:inline-block; font-size:.72rem; font-weight:700; padding:.1rem .5rem;
+    border-radius:999px; vertical-align:middle;}
+  .tag.hi{background:var(--warnbg); color:var(--warn); border:1px solid var(--warn);}
+  .tag.md{background:#fffbeb; color:#b45309; border:1px solid #f59e0b;}
+  .tag.lo{background:var(--okbg); color:var(--ok); border:1px solid var(--ok);}
+  .rec{border-left:4px solid var(--accent); padding:.2rem 0 .2rem 1rem; margin:1.1rem 0;}
+  .rec.hi{border-color:var(--warn);}
+  .rec h3{margin:.1rem 0 .3rem;}
+  .legend{font-size:.82rem; color:var(--muted);}
+  .legend b{color:var(--warn);}
+  footer{margin-top:3rem; color:var(--muted); font-size:.8rem; border-top:1px solid var(--line); padding-top:1rem;}
+  ul{margin:.4rem 0 .4rem 0; padding-left:1.2rem;} li{margin:.25rem 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>cc-setup — Session-Lifecycle, Hooks &amp; Skills</h1>
+<p class="sub">Analyse der Hook-Verdrahtung über den Session-Lebenszyklus (SessionStart → UserPromptSubmit → Tool-Loop → Stop), welche Skills automatisch getriggert werden, und Optimierungen unter der Leitlinie <strong>weniger ist besser</strong>. &nbsp;Stand: 2026-06-04.</p>
+
+<div class="card">
+  <strong>TL;DR — der größte Hebel:</strong> Hooks sind <span class="dup">doppelt registriert</span> (einmal in <code>~/.claude/settings.json</code>, einmal im cc-setup-Plugin <code>hooks/hooks.json</code>). Dadurch feuern <code>inject-project-context</code> (SessionStart) und der <code>/context-load</code>-Trigger (UserPromptSubmit) <strong>zweimal</strong> pro Session — doppelte Token-Injektion, doppelte Latenz. Empirisch belegt: zwei „SESSION START HOOK"-Zeilen und zwei <code>&lt;context-load-trigger&gt;</code>-Blöcke beim Start. <strong>Eine Registrierungsquelle reicht.</strong>
+</div>
+
+<h2>1. Hook-Registry (was ist wo verdrahtet)</h2>
+<p>Beide Quellen registrieren überlappende Sätze. <span class="dup">Rot = in beiden → doppelte Ausführung.</span></p>
+<table>
+<thead><tr><th>Event</th><th>Matcher</th><th>Handler</th><th>settings.json</th><th>Plugin</th></tr></thead>
+<tbody>
+<tr><td>SessionStart</td><td>*</td><td><code>redactor hook session-start</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>SessionStart</td><td>*</td><td><code>inject-project-context.sh</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>UserPromptSubmit</td><td>*</td><td><code>redactor hook prompt</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>UserPromptSubmit</td><td>*</td><td><code>userprompt-context-match.sh</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>PreToolUse</td><td>Bash|PowerShell</td><td><code>redactor hook pre-bash</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>PreToolUse</td><td>Read</td><td><code>redactor hook pre-read</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>PreToolUse</td><td>Grep</td><td><code>redactor hook deny-grep</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>PreToolUse</td><td>NotebookEdit</td><td><code>redactor hook deny-notebook</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>PreToolUse</td><td>Edit|MultiEdit|Write</td><td><code>redactor hook pre-edit</code></td><td>—</td><td>✓ (nur Plugin)</td></tr>
+<tr><td>PreToolUse</td><td>mcp__.*</td><td><code>redactor hook deny-mcp</code></td><td>—</td><td>✓ (nur Plugin)</td></tr>
+<tr><td>PostToolUse</td><td>Write|Edit</td><td><code>redactor hook post-write</code></td><td>✓</td><td>✓ <span class="dup">dup</span></td></tr>
+<tr><td>Stop</td><td>*</td><td><code>stop-workflow.sh</code></td><td>✓</td><td>— (nur settings)</td></tr>
+</tbody>
+</table>
+<p class="legend">Externe Quelle (nicht cc-setup): das <b>superpowers</b>-Plugin injiziert bei SessionStart zusätzlich das vollständige <code>using-superpowers</code>-Skill (mehrere KB, jeden Start).</p>
+
+<h2>2. Session-Lifecycle — Gesamtfluss</h2>
+<div class="mermaid">
+flowchart TD
+  A([Session-Start]):::ev --> B[SessionStart-Hooks]
+  B --> B1["redactor: session-start<br/>Strict-Mode-Reminder"]
+  B --> B2["inject-project-context.sh<br/>Header + Tree + aktive Tasks"]:::dup
+  B --> B3["superpowers: using-superpowers<br/>(volles Skill, extern)"]:::ext
+  B --> C([Warte auf 1. User-Prompt]):::ev
+  C --> D[UserPromptSubmit-Hooks]
+  D --> D1["redactor: prompt<br/>Prompt-Redaction"]
+  D --> D2["userprompt-context-match.sh<br/>injiziert context-load-trigger"]:::dup
+  D2 --> E["Claude führt /context-load aus<br/>Task + Wiki laden"]:::skill
+  E --> F[[Tool-Loop]]
+  F --> G{PreToolUse<br/>redactor-Gate}
+  G -->|Bash| G1[pre-bash]
+  G -->|Read| G2[pre-read]
+  G -->|Grep| G3[deny-grep]
+  F --> H{PostToolUse}
+  H -->|Write/Edit| H1[post-write Secret-Scan]
+  F --> I([Turn-Ende]):::ev
+  I --> J[Stop: stop-workflow.sh]
+  J --> K1[cleanup-dispatch-stop.sh]
+  K1 --> K2[pkm-sync-stop.sh]
+  K2 -->|"Änderungen + Debounce ok"| L([block: PKM-Doku-Prompt]):::skill
+  K2 -->|"kein block (2. Stop)"| K3[sync-sessions-to-vault.sh]
+  classDef ev fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+  classDef dup fill:#fef2f2,stroke:#b91c1c,color:#7f1d1d,stroke-width:2px;
+  classDef ext fill:#f5f5f4,stroke:#a8a29e,color:#44403c,stroke-dasharray:4 3;
+  classDef skill fill:#f0fdf4,stroke:#15803d,color:#14532d;
+</div>
+<p class="legend"><b style="color:#b91c1c">Rot umrandet</b> = doppelt registriert (feuert 2×). Gestrichelt = externes Plugin.</p>
+
+<h2>3. SessionStart im Detail</h2>
+<div class="mermaid">
+flowchart TD
+  S([SessionStart]) --> R[redactor session-start]
+  S --> P[inject-project-context.sh]
+  P --> P0{CLAUDE_PROJECT gesetzt?}
+  P0 -->|ja| P1[Override-Name → Vault/GITHUB]
+  P0 -->|nein| P2{lokales knowledge/facts.md?}
+  P2 -->|ja| P3[KNOWLEDGE_DIR = ./knowledge]
+  P2 -->|nein| P4["Vault-Fallback: Efforts/Work + Private<br/>Name-Match gegen CWD"]
+  P1 --> Q{facts.md gefunden?}
+  P3 --> Q
+  P4 --> Q
+  Q -->|nein| X([exit 0 — still]):::ev
+  Q -->|ja| O["Output:<br/>Project-Header<br/>Project Tree 2 Levels (max 30 dirs/15 files)<br/>aktive TaskNotes (in-progress)<br/>context-load-Hinweis"]
+  O --> L[(logs/hook-session-start.log)]
+  classDef ev fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+</div>
+<p>Resolve-Reihenfolge: <code>CLAUDE_PROJECT</code> → lokales <code>knowledge/facts.md</code> → Vault-Effort per Namensgleichheit. Ohne <code>facts.md</code> bricht der Hook still ab. cc-setup matcht über den Vault-Fallback (<code>Efforts/Work/dgk/cc-setup</code>).</p>
+
+<h2>4. UserPromptSubmit → /context-load</h2>
+<div class="mermaid">
+flowchart TD
+  U([UserPromptSubmit]) --> R[redactor prompt — Redaction]
+  U --> M[userprompt-context-match.sh]
+  M --> M1{Marker /tmp/...session-id vorhanden?}
+  M1 -->|ja → schon getriggert| Z([exit 0 — still]):::ev
+  M1 -->|nein| M2[touch Marker]
+  M2 --> M3{Prompt ≥ 10 Zeichen?}
+  M3 -->|nein| Z
+  M3 -->|ja| M4[injiziere context-load-trigger<br/>via additionalContext]
+  M4 --> C[Claude: /context-load<br/>qmd-Wiki-Suche + aktive Tasks scoren<br/>Match → Task+Dependencies laden]:::skill
+  classDef ev fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+  classDef skill fill:#f0fdf4,stroke:#15803d,color:#14532d;
+</div>
+<p><strong>Doppelung:</strong> Da der Hook in settings.json <em>und</em> im Plugin steht, werden zwei <code>&lt;context-load-trigger&gt;</code>-Blöcke injiziert (einer zeigt auf <code>/context-load</code>, einer auf <code>/project-context:context-load</code>). Beide beschreiben denselben Ablauf → reine Token-Duplikation pro Session.</p>
+
+<h2>5. Stop-Chain</h2>
+<div class="mermaid">
+flowchart TD
+  ST([Stop]) --> SW[stop-workflow.sh]
+  SW --> C1[cleanup-dispatch-stop.sh<br/>ruff / fallow / cargo fix+format<br/>auf geänderte Dateien]
+  C1 --> C2[pkm-sync-stop.sh]
+  C2 --> D0{stop_hook_active?}
+  D0 -->|true 2. Fire| SIL[exit still → leeres Output]
+  D0 -->|false| D1{Changes + Debounce 15min ok?}
+  D1 -->|nein| SIL
+  D1 -->|ja| D2["block: REASON mit Tasks<br/>1 Session-Eintrag · 2 Resume · 3 Lessons<br/>4 Backlog-Task-Doku (NEU) · 5 Git"]:::skill
+  D2 --> END1([stop-workflow exit 0 — sync übersprungen])
+  SIL --> SS[sync-sessions-to-vault.sh<br/>JSONL → Vault logs/Sessions/*.md]
+  classDef skill fill:#f0fdf4,stroke:#15803d,color:#14532d;
+</div>
+<p>Wichtige Nuance: Wenn <code>pkm-sync-stop.sh</code> <em>blockt</em> (Normalfall bei Änderungen), beendet <code>stop-workflow.sh</code> sofort — <code>sync-sessions-to-vault.sh</code> läuft erst beim <strong>nächsten</strong> Stop (wenn PKM-Sync schon erledigt ist und der Hook still durchläuft).</p>
+
+<h2>6. Skills — automatisch vs. manuell</h2>
+<table>
+<thead><tr><th>Skill</th><th>Trigger</th><th>Quelle</th></tr></thead>
+<tbody>
+<tr><td><code>/context-load</code></td><td><strong>automatisch</strong>, 1. Prompt (UserPromptSubmit)</td><td>aktuell <span class="dup">2×</span> (flat + Plugin)</td></tr>
+<tr><td><code>using-superpowers</code></td><td><strong>automatisch</strong>, SessionStart (voll injiziert)</td><td>superpowers-Plugin (extern)</td></tr>
+<tr><td>session-analyser, review, qmd, recall, knowledge, daily-review, check-links, opensrc, local-ci, session-init/stop, cc-setup</td><td>manuell (Slash) oder modell-entschieden via Description</td><td>jeweils flat <em>und</em> <code>/cc-setup:*</code> <span class="dup">(doppelt gelistet)</span></td></tr>
+</tbody>
+</table>
+<p>Jeder cc-setup-Skill erscheint zweimal in der Skill-Liste (flat + Plugin-Namespace) → Kontext-Rauschen bei jeder Skill-Auswahl.</p>
+
+<h2>7. Optimierungen — <em>weniger ist besser</em></h2>
+
+<div class="rec hi">
+  <h3><span class="tag hi">HOCH</span> R1 — Hooks aus EINER Quelle registrieren</h3>
+  <p>settings.json und Plugin registrieren denselben Hook-Satz → alles feuert doppelt. <strong>Eine</strong> Quelle wählen. Da Skills künftig flat laufen sollen: Hooks in <code>~/.claude/settings.json</code> behalten, die Hook-Registrierung im Plugin (<code>hooks/hooks.json</code>) entfernen — oder umgekehrt. <br><em>Verifizierbar:</em> nach dem Fix exakt <strong>ein</strong> SessionStart-Block und <strong>ein</strong> context-load-Trigger.</p>
+</div>
+
+<div class="rec hi">
+  <h3><span class="tag hi">HOCH</span> R2 — /context-load nur einmal</h3>
+  <p>Direkte Folge von R1: spart die größte wiederkehrende Token-Injektion pro Session-Start (zwei nahezu identische Trigger-Blöcke → einer).</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag md">MITTEL</span> R3 — SessionStart-Output verschlanken</h3>
+  <p><code>inject-project-context.sh</code> druckt jeden Start einen Project Tree (bis 30 Verzeichnisse + 15 Dateien). Bei großen Repos viel Rauschen für wenig Nutzen. Vorschlag: 1 Level / max. 10 Einträge, oder ganz weglassen (Claude kann bei Bedarf selbst listen).</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag md">MITTEL</span> R4 — superpowers-Injektion prüfen</h3>
+  <p>Das volle <code>using-superpowers</code>-Skill wird bei jedem SessionStart injiziert (mehrere KB). Wenn es nicht aktiv die Arbeitsweise steuert: deaktivieren oder auf einen Einzeiler-Pointer kürzen → Token-Ersparnis jeden Start.</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag lo">NIEDRIG</span> R5 — Skill-Namespace-Dopplung auflösen</h3>
+  <p>Wenn das Plugin nur noch Hooks liefern soll: <code>skills/</code> aus dem Plugin entfernen (nur <code>hooks/</code> behalten). Dann erscheint jeder Skill nur einmal (flat) statt zweimal → kürzere Skill-Liste, weniger Auswahl-Rauschen.</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag lo">NIEDRIG</span> R6 — session-analyser SKILL.md Step 2 fixen</h3>
+  <p><code>redactor wrap -- cat /tmp/session-agg.json</code> wird unter Strict-Mode geblockt. Auf „JSON-Stream durch Plain-Text-Formatter pipen" umstellen (verifiziert funktionierend).</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag lo">NIEDRIG</span> R7 — Stop-Chain bewusst halten</h3>
+  <p><code>sync-sessions-to-vault.sh</code> läuft nur beim 2. Stop (nach PKM-Block). Funktioniert, aber unintuitiv — dokumentieren oder Reihenfolge prüfen.</p>
+</div>
+
+<div class="card">
+  <strong>Netto-Effekt von R1+R2+R5:</strong> ~halbe SessionStart/Prompt-Hook-Last, ein context-load statt zwei, halbierte Skill-Liste — bei identischer Funktion. Genau „weniger ist besser".
+</div>
+
+<footer>
+Quellen: <code>~/.claude/settings.json</code>, <code>~/.claude/skills/cc-setup/hooks/hooks.json</code>,
+<code>inject-project-context.sh</code>, <code>userprompt-context-match.sh</code>,
+<code>stop-workflow.sh</code>, <code>cleanup-dispatch-stop.sh</code>, <code>pkm-sync-stop.sh</code>, <code>sync-sessions-to-vault.sh</code>.
+Generiert als Analyse-Artefakt; Empfehlungen sind Vorschläge (Human-Oversight — nichts auto-appliziert).
+</footer>
+
+</div>
+</body>
+</html>

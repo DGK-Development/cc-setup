@@ -57,3 +57,4 @@ See `knowledge/standardisiertes-vorgehen-fuer-x.md` for the canonical template.
 
 - [Template: standardisiertes Vorgehen](standardisiertes-vorgehen-fuer-x.md) — copy this to create a new "how we do X" knowledge file.
 - [Lektion: Redactor Top-3-Fehler](lektion-redactor-strict-mode-haeufigste-fehlerquelle.md) — wrap vergessen, JSON via wrap statt --type json, CLAUDE_PLUGIN_ROOT undefiniert. Belegt durch Session-Analyse 2026-06-03.
+- [Session-Lifecycle, Hooks & Skills (HTML)](session-lifecycle-hooks-analyse.html) — Flowcharts aller Lifecycle-Hooks (SessionStart / UserPromptSubmit / PreToolUse / Stop) + welche Skills auto-triggern. Kern-Finding: Hooks doppelt registriert (settings.json + Plugin) → context-load feuert 2×. Optimierungen R1–R7 (weniger ist besser).
