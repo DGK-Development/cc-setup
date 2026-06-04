@@ -3,11 +3,11 @@ id: CCS-004
 title: >-
   Wiki-Topic-Notes (session-analyser + context-load Layer 1.5) ablegen +
   qmd-Retrieval verifizieren
-status: Done
+status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-04 19:31'
-updated_date: '2026-06-04 20:10'
+updated_date: '2026-06-04 20:00'
 labels: []
 dependencies:
   - CCS-003
