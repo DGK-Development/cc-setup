@@ -4,7 +4,7 @@ Hermetic by design: no ``backlog`` / ``tn`` subprocesses are invoked, so the
 suite runs fast and needs no Backlog.md install. survey/status are thin
 compositions over the parsers tested here plus subprocess plumbing.
 
-Run: cd vendor/cc-plugin-project-context/scripts &&
+Run: cd scripts &&
      uv run --with pytest --with pyyaml pytest test_sprint_bridge.py -v
 """
 

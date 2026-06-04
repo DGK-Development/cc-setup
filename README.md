@@ -89,4 +89,3 @@ macOS, Linux nativ. Windows: **Git Bash oder WSL** (bash-Hooks). Deploy nutzt `r
 | Path | Upstream |
 |---|---|
 | `vendor/hook-redactor` | DGK-Development/hook-redactor |
-| `vendor/cc-plugin-project-context` | niclasedge/cc-plugin-project-context |

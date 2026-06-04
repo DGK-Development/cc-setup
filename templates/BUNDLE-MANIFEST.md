@@ -1,6 +1,6 @@
 # cc-setup bundle manifest
 
-What gets installed to `~/.claude/skills/` via `just install`.
+What gets installed to `~/.claude/skills/` via `just setup` (flat install, no plugin).
 
 ## Plugin (`~/.claude/skills/cc-setup/`)
 
@@ -9,7 +9,7 @@ Single `@skills-dir` plugin — hooks, scripts, agents, skills.
 | Component | Source | Notes |
 |---|---|---|
 | Hooks | cc-plugin + redactor merge | SessionStart, UserPromptSubmit, Pre/PostToolUse |
-| Scripts | cc-plugin-project-context | context-resolve, tasknotes_cli, qmd-ensure, setup.sh |
+| Scripts | repo-local `scripts/` | context-resolve, sprint_bridge, tasknotes_cli, qmd-ensure, context-deps |
 | **Agents** | ObsidianPKM `.claude/agents/` | SPOC subagents for `Agent` tool |
 | Skills | see below | namespaced `/cc-setup:<name>` |
 
@@ -54,7 +54,7 @@ Install only if you work daily in ObsidianPKM — sync manually or extend `sync-
 
 Reason: heavy vault coupling, large script trees, or niche use.
 
-## Flat skills (also copied by `just install`)
+## Flat skills (also copied by `just setup`)
 
 | Path | Invoke | Why flat |
 |---|---|---|
@@ -72,4 +72,4 @@ Other skills: use `/cc-setup:<skill>` after plugin install.
 
 Hooks and cc-plugin scripts are bash — native Windows CMD/PowerShell without WSL is **not** supported.
 
-`just install` uses `rsync` when available, else `cp -a` (Git Bash/WSL).
+`just setup` uses `rsync` when available, else `cp -a` (Git Bash/WSL).
