@@ -1,6 +1,14 @@
-=== STOP HOOK 2026-06-04 21:38:10 ===
+=== STOP HOOK 2026-06-04 22:14:06 ===
 PROJECT: cc-setup
 CWD: /Users/niclasedge/GITHUB_DG/cc-setup
 IS_GIT_REPO: true
 
-Exit: debounce (144s < 900s)
+Debounce passed, gathering changes...
+Changes detected, filtering...
+ACTIVE_TARGET: /Users/niclasedge/GITHUB/ObsidianPKM/Efforts/Work/dgk/cc-setup/CHANGELOG.md
+BACKLOG_INPROGRESS: In Progress:
+  CCS-002 - [Spec] session-analyser Skill
+  CCS-003 - Minimal: context-load Layer 1.5 Sprint-Anzeige + read-only sprint_bridge
+ACTIVE_KIND: project_changelog
+OVERVIEW_FILE: 
+Handing off to inline Claude for CHANGELOG + lessons/decisions...

@@ -6,3 +6,4 @@
 {"command":"bash -c  V=\"/Users/niclasedge/GITHUB_DG/cc-setup/vendor/cc-plugin-project-context\" echo \"=== vendor ...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T21:18:39+02:00"}
 {"command":"bash -c  V=\"/Users/niclasedge/GITHUB_DG/cc-setup/vendor/cc-plugin-project-context\" echo \"=== vendor ...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T21:18:39+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T21:31:17+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T21:39:32+02:00"}
