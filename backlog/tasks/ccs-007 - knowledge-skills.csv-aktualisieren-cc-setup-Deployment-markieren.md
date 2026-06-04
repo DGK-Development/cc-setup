@@ -1,9 +1,11 @@
 ---
 id: CCS-007
 title: knowledge/skills.csv aktualisieren + cc-setup-Deployment markieren
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-06-04 20:45'
+updated_date: '2026-06-04 21:21'
 labels:
   - knowledge
   - docs

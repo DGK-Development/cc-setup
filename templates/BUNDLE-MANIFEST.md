@@ -32,19 +32,19 @@ Refresh: `just sync-sources` copies from `OBSIDIANPKM_ROOT` (default `~/GITHUB/O
 
 | Skill | Purpose | Vault-bound? |
 |---|---|---|
-| `context-load` | Task + wiki context | uses plugin scripts + `OBSIDIAN_VAULT_PATH` |
-| `context-init` | Project bootstrap | command in plugin |
-| `local-ci` | Pre-push CI gate | self-contained assets |
+| `audit` | Session log + config audit | self-contained |
 | `cc-setup` | SPOC contract | self-contained |
-| `review` | PM routing `/review` | needs vault `skripte/` when run from vault |
+| `check-links` | Broken wiki links | vault |
+| `context-init` | Project bootstrap | command in plugin |
+| `context-load` | Task + wiki context | uses plugin scripts + `OBSIDIAN_VAULT_PATH` |
+| `daily-review` | Effort scan | vault Efforts/ |
+| `knowledge` | knowledge get/finish | project knowledge/ |
+| `local-ci` | Pre-push CI gate | self-contained assets |
+| `opensrc` | Reference repo cache | global |
 | `qmd` | Hybrid search | needs qmd + vault index |
 | `recall` | Session/wiki recall | vault paths |
-| `opensrc` | Reference repo cache | global |
-| `check-links` | Broken wiki links | vault |
-| `daily-review` | Effort scan | vault Efforts/ |
-| `session-init` | Cursor/CC session start parity | hooks + context |
+| `review` | PM routing `/review` | needs vault `skripte/` when run from vault |
 | `session-stop` | PKM sync on stop | hooks |
-| `knowledge` | knowledge get/finish | project knowledge/ |
 
 ## Skills — tier 2 (optional, stay in vault repo)
 
