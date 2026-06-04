@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bundle.sh — assemble dist/cc-setup plugin for @skills-dir install (repo-local sources).
+# bundle.sh — assemble dist/cc-setup tree for the flat install (scripts/setup.sh).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,7 +23,7 @@ fi
 
 echo "==> clean $OUT"
 rm -rf "$OUT"
-mkdir -p "$OUT/.claude-plugin"
+mkdir -p "$OUT"
 
 echo "==> copy project-context assets (repo-local)"
 # hooks + commands: vollständig repo-lokal kopieren.
@@ -36,7 +36,7 @@ done
 
 # skills: context-load kommt über den templates/skills-Copy weiter unten — kein eigener Schritt hier.
 
-# scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, setup.sh, install.sh, …).
+# scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, setup.sh, …).
 mkdir -p "$OUT/scripts"
 RUNTIME_SCRIPTS=(
   context-resolve.py
@@ -54,8 +54,7 @@ for f in "${RUNTIME_SCRIPTS[@]}"; do
   fi
 done
 
-echo "==> plugin manifest + docs"
-cp "$TEMPLATES/.claude-plugin/plugin.json" "$OUT/.claude-plugin/plugin.json"
+echo "==> docs + contract"
 mkdir -p "$OUT/bootstrap"
 cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CLAUDE.md"
 # Slim contract (no redactor appendix) — source for the global ~/.claude/CLAUDE.md.
@@ -119,11 +118,5 @@ else
   echo "warn: redactor still not on PATH — hooks require redactor binary at runtime"
 fi
 
-if command -v claude >/dev/null 2>&1; then
-  echo "==> claude plugin validate"
-  claude plugin validate "$OUT" || echo "warn: plugin validate reported issues (check manually)"
-fi
-
 echo "==> done: $OUT"
-echo "    install: rsync -a --delete dist/cc-setup/ ~/.claude/skills/cc-setup/"
-echo "    or:      just install"
+echo "    install: just setup   (deploys skills/agents/scripts/hooks flat into ~/.claude/)"

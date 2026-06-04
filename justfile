@@ -19,11 +19,7 @@ check:
 
 update: setup
 
-# Legacy: Plugin-basiertes Install (sync → bundle → ~/.claude/skills als Plugin)
-install:
-    bash scripts/install.sh
-
-# Nur Schritt 1 von install (manuell, selten nötig)
+# Quellen aus Vault/Cursor nach templates/ ziehen (manuell, selten nötig)
 sync-sources:
     bash scripts/sync-from-sources.sh
 
@@ -40,12 +36,6 @@ bundle:
 # Vault nachträglich setzen (ohne vollständigen Setup-Durchlauf)
 install-vault vault="$HOME/GITHUB/ObsidianPKM":
     bash scripts/setup.sh --vault "{{vault}}"
-
-validate: bundle
-    claude plugin validate "{{justfile_directory()}}/dist/cc-setup"
-
-dev:
-    claude --plugin-dir "{{justfile_directory()}}/dist/cc-setup"
 
 # Alle Test-Suites (repo-lokal in scripts/): sprint-bridge + session-analyse + waste + context-resolve
 test:
