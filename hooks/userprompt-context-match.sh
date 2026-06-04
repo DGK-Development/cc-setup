@@ -5,7 +5,9 @@
 # prompts pass through silently (marker file per session).
 #
 # Input (stdin JSON): { session_id, transcript_path, cwd, prompt }
-# Output: first prompt -> additionalContext instructing /context-load; else silent.
+# Output: first prompt -> additionalContext instructing /context-load (Backlog-
+#         zentriert: Backlog-Tasks/Milestones primär, Vault-TaskNotes nur on-demand);
+#         else silent.
 #
 # Plugin-portable changes:
 #   - PLUGIN_ROOT derived from script location.
@@ -57,23 +59,21 @@ if [ "$PROMPT_LEN" -lt 10 ]; then
 fi
 
 INSTRUCTION="<context-load-trigger>
-First user prompt of this session detected. Before responding to the user, invoke the /project-context:context-load skill with the user's prompt as input. This will:
-1. Run a qmd-wiki search against the user's prompt
-2. List active TaskNotes via the bundled tasknotes_cli.py
-3. Score matches between prompt and active tasks
-4. If clear match: load task with dependencies recursively (Question-Body voll, Task-Body voll, transitive Blocker)
-5. If ambiguous: ask user via AskUserQuestion which task to load
-6. If no match: ask user (Neuer Task / Freie Session / Anderes Projekt)
-7. If blocker present: ask user (Blocker loesen / Haupt-Task forcen)
-8. Auto-invoke any Suggested-Skills from the loaded task's Resume State block
+First user prompt of this session detected. Before responding to the user, invoke the /project-context:context-load skill with the user's prompt as input. Backlog.md-Tasks/Milestones im CWD-Repo sind die PRIMÄRE Arbeits-Quelle. The skill will:
+1. Backlog-Sprint (AUTO, primär): repo-lokalen Sprint-Stand via sprint_bridge laden — offene Milestones (name, done/total, offene Subtask-IDs), In-Progress-Tasks und empfohlene nächste To-Dos. Diese als aktiven Arbeitskontext führen.
+2. qmd-Wiki-Suche gegen den Prompt (verwandtes Wissen) und ggf. Repo-qmd (Repo-Kontext).
+3. Bei echtem Einstieg ohne klaren Bezug: User fragen (welcher Backlog-Task / Milestone-Task weitermachen).
+4. Suggested-Skills aus dem geladenen Backlog-Task/Resume-State invoken, wenn passend.
+
+Vault-TaskNotes werden NICHT automatisch geladen. Nur bei EXPLIZITER TaskNote-/Vault-Anfrage (z.B. 'tn next', konkrete TaskNote-ID, 'aktive TaskNotes', Vault-Projekt) den on-demand TaskNote-Match (context-load Layer 1) ziehen.
 
 User prompt for the match:
 $PROMPT
 
 Skill: /project-context:context-load (plugin)
 Plugin root: $PLUGIN_ROOT
-Vault: $VAULT_PATH (skill ist no-op wenn dieser Pfad nicht existiert)
-TaskNotes CLI: $PLUGIN_ROOT/scripts/tasknotes_cli.py
+Vault: $VAULT_PATH (TaskNote-Layer ist no-op wenn dieser Pfad nicht existiert; nur on-demand)
+sprint_bridge: $PLUGIN_ROOT/scripts/sprint_bridge.py (read-only)
 
 WICHTIG: redactor strict mode ist aktiv — jeder Bash-Call MUSS mit 'redactor wrap --' prefixed werden. Der Skill enthaelt die korrekten Befehle bereits inkl. Wrapper; nutze sie 1:1.
 

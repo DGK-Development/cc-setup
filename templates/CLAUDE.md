@@ -4,7 +4,7 @@ Bundled plugin: project-context + redactor strict mode. Copy sections into proje
 
 ## Runtime-Vertrag
 
-1. Kontext laden — der **UserPromptSubmit**-Hook triggert `/cc-setup:context-load` beim ersten Prompt. (Der SessionStart-Hook druckt nur Projekt-Header + aktive TaskNotes und laedt selbst **keinen** Kontext.)
+1. Kontext laden — der **SessionStart**-Hook druckt den **Backlog-Stand** (PRIMÄR: offene Milestones mit done/total + offenen Subtask-IDs, In-Progress-Tasks, naechste To-Dos) plus Projekt-Header; Vault-TaskNotes werden **nicht** automatisch geladen (nur on-demand). Der **UserPromptSubmit**-Hook triggert `/cc-setup:context-load` beim ersten Prompt (Backlog-zentriert; laedt selbst Wiki-/Repo-Semantik dazu). TaskNote-Match nur bei expliziter Vault-Anfrage.
 2. Gate bestimmen (`/review routing` or cockpit).
 3. Genau eine naechste Aktion ausfuehren.
 4. Ergebnis in Task-Changelog, Daily oder Projekt-Changelog dokumentieren.

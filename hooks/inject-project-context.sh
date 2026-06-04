@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # inject-project-context.sh — SessionStart hook (plugin port)
 #
-# Emits a minimal project header: project id, 2-level tree, active TaskNotes.
-# Falls back silently when no knowledge/ folder and no matching vault project.
+# Emits a minimal project header: Backlog-Stand (PRIMÄR — milestones, in-progress
+# tasks, next to-dos), project id, 2-level tree. Vault-TaskNotes are NOT loaded
+# automatically anymore — only on-demand via /context-load (Layer 1) or `tn next`.
+# Falls back silently when no backlog/ and no knowledge/ folder / vault project.
 #
 # Plugin-portable changes vs. the original ~/.claude/hooks version:
 #   - PLUGIN_ROOT is derived from this script's location (no hardcoded path).
 #   - Vault path resolved via scripts/lib.sh (env-driven).
-#   - TaskNotes CLI is the plugin-bundled copy, invoked with --vault.
 
 set -u
 
@@ -29,18 +30,72 @@ echo "CWD: $PROJECT_DIR"
 echo "Vault: $VAULT_PATH"
 echo ""
 
-# --- Backlog-Sprint (auto): naechster Task + Milestone-Fortschritt ---
-# Schnell (sprint_bridge status: read-only backlog-parse, kein tn-Call), few-token,
-# greift in JEDEM Repo mit backlog/ — unabhaengig vom Vault-Projekt-Match unten.
+# --- Backlog-Stand (auto, PRIMÄR): Milestones + In-Progress + nächste To-Dos ---
+# Backlog.md-Tasks sind die primären Arbeits-Items. Read-only, few-token, greift
+# in JEDEM Repo mit backlog/ — unabhaengig vom Vault-Projekt-Match unten. No-op
+# (sauberes Skip, kein Fehler), wenn kein backlog/ im Repo oder Tools fehlen.
+#
+# Pfadaufloesung: PLUGIN_ROOT zeigt im Flat-Install auf ~/.claude/skills/cc-setup/
+# (Hook liegt unter hooks/), im Repo auf den Repo-Root — beide Male liegt
+# sprint_bridge.py unter scripts/. Fallback auf den festen Flat-Pfad, falls die
+# relative Aufloesung das Script nicht findet.
 SB_SCRIPT="$PLUGIN_ROOT/scripts/sprint_bridge.py"
-if [ -d "$PROJECT_DIR/backlog" ] && [ -f "$SB_SCRIPT" ] && command -v uv >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    SB_JSON=$(uv run --script "$SB_SCRIPT" status --repo "$PROJECT_DIR" 2>/dev/null)
-    MS=$(echo "$SB_JSON" | jq -r '.active | select(.) | "\(.milestone) (\(.done)/\(.total))"' 2>/dev/null)
-    NEXT=$(echo "$SB_JSON" | jq -r '.active.next_open_task | select(.) | "\(.id) — \(.title)"' 2>/dev/null)
-    if [ -n "$MS" ]; then
-        echo "Backlog-Sprint (auto): $MS"
-        [ -n "$NEXT" ] && echo "  ➡ Nächster Task: $NEXT"
+[ ! -f "$SB_SCRIPT" ] && SB_SCRIPT="$HOME/.claude/skills/cc-setup/scripts/sprint_bridge.py"
+
+# Extrahiert offene Subtask-IDs (To Do + In Progress) aus `backlog task list -m … --plain`.
+# Robust gegen das `[PRIORITY] `-Praefix, das backlog vor die Task-ID setzt.
+_open_ids_for_milestone() {
+    backlog task list -m "$1" --plain 2>/dev/null | awk '
+        /^[A-Za-z].*:[[:space:]]*$/ {
+            h = tolower($0); sub(/:[[:space:]]*$/, "", h)
+            open = (h == "to do" || h == "in progress"); next
+        }
+        open && match($0, /[A-Za-z][A-Za-z0-9]*-[0-9][0-9.]*/) {
+            ids = ids (ids ? ", " : "") substr($0, RSTART, RLENGTH)
+        }
+        END { if (ids) print ids }'
+}
+
+if [ -d "$PROJECT_DIR/backlog" ] && command -v backlog >/dev/null 2>&1; then
+    echo "=== Backlog-Stand (PRIMÄR — Backlog.md ist die Arbeits-Quelle) ==="
+
+    # 1) Milestones: name, done/total, offene Subtask-IDs (via sprint_bridge survey)
+    HAS_MILESTONE=0
+    if [ -f "$SB_SCRIPT" ] && command -v uv >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        SB_JSON=$(uv run --script "$SB_SCRIPT" survey --repo "$PROJECT_DIR" 2>/dev/null)
+        MS_NAMES=$(echo "$SB_JSON" | jq -r '.open_milestones[]?.name' 2>/dev/null)
+        if [ -n "$MS_NAMES" ]; then
+            HAS_MILESTONE=1
+            echo "Offene Milestones:"
+            echo "$SB_JSON" | jq -r '.open_milestones[]? | "\(.name)\t\(.done)\t\(.total)"' 2>/dev/null \
+              | while IFS=$'\t' read -r ms_name ms_done ms_total; do
+                  [ -z "$ms_name" ] && continue
+                  echo "  - $ms_name ($ms_done/$ms_total done)"
+                  open_ids=$(_open_ids_for_milestone "$ms_name")
+                  [ -n "$open_ids" ] && echo "      offen: $open_ids"
+              done
+            echo ""
+        fi
+    fi
+
+    # 2) In-Progress-Tasks (immer)
+    IP_LIST=$(backlog task list -s "In Progress" --plain 2>/dev/null | grep -E '^\s+\S' | head -15)
+    if [ -n "$IP_LIST" ]; then
+        echo "In Progress:"
+        echo "$IP_LIST"
         echo ""
+    fi
+
+    # 3) Empfohlene nächste To-Dos (Fallback-Quelle wenn keine Milestones existieren)
+    TODO_LIST=$(backlog task list -s "To Do" --plain 2>/dev/null | grep -E '^\s+\S' | head -10)
+    if [ -n "$TODO_LIST" ]; then
+        echo "Nächste To-Dos:"
+        echo "$TODO_LIST"
+        echo ""
+    elif [ "$HAS_MILESTONE" = "0" ] && [ -z "$IP_LIST" ]; then
+        # Kein Milestone, nichts in Arbeit, keine To-Dos → kompletter Task-Überblick
+        FULL=$(backlog task list --plain 2>/dev/null | head -20)
+        [ -n "$FULL" ] && { echo "Tasks:"; echo "$FULL"; echo ""; }
     fi
 fi
 
@@ -144,21 +199,11 @@ find "$PROJECT_DIR" -maxdepth 1 -mindepth 1 -type f \
 done | head -15
 echo ""
 
-# Active TaskNotes via plugin-bundled tasknotes_cli.py
-TASKNOTES_CLI="$PLUGIN_ROOT/scripts/tasknotes_cli.py"
-if [ -f "$TASKNOTES_CLI" ] && command -v uv >/dev/null 2>&1; then
-    TN_JSON=$(uv run --script "$TASKNOTES_CLI" --vault "$VAULT_PATH" list --status in-progress --format json 2>/dev/null)
-    if command -v jq >/dev/null 2>&1; then
-        TN_COUNT=$(echo "$TN_JSON" | jq -r '.count // 0' 2>/dev/null)
-        if [ -n "$TN_COUNT" ] && [ "$TN_COUNT" != "0" ]; then
-            echo "Active Tasks ($TN_COUNT in-progress):"
-            echo "$TN_JSON" | jq -r '.tasks[] | "  - [\(.id)] \(.title) (\(.project.name))\(if .metadata.cc_workflow_status then " · cc:" + .metadata.cc_workflow_status else "" end)"' 2>/dev/null
-            echo ""
-        fi
-    fi
-fi
+# Vault-TaskNotes werden hier NICHT mehr automatisch geladen (Backlog-zentriert).
+# Aktive TaskNotes nur on-demand: bei expliziter Vault-/TaskNote-Anfrage via
+# /context-load (Layer 1, on-demand) oder direkt `tn next`.
 
-echo "Context-Load: /context-load wird beim ersten User-Prompt getriggert (matcht Anfrage gegen Wiki + aktive Tasks, laedt Dependencies)."
+echo "Context-Load: /context-load wird beim ersten User-Prompt getriggert (matcht Anfrage gegen Backlog-Tasks + Wiki, laedt Dependencies). Vault-TaskNotes nur auf explizite Anfrage."
 echo ""
 
 exit 0

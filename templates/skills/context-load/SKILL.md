@@ -1,6 +1,6 @@
 ---
 name: context-load
-description: Laedt Session-Kontext beim ersten Prompt — aktiver Task (vault-bezogen), Backlog-Sprint (repo-lokal), qmd-Wiki-Semantik (GLOBAL, laeuft aus jedem Repo sobald das Vault-Verzeichnis existiert) und Projekt-Repo. Nutzt context-resolve.py fuer Klassifikation + Task-Match. USE WHEN neue Session, Session Start, Kontext laden, context-load, was ist das Projekt, aktive Tasks, sessionStart hook.
+description: Laedt Session-Kontext beim ersten Prompt — Backlog-Sprint (repo-lokal, PRIMÄR/auto), qmd-Wiki-Semantik (GLOBAL, laeuft aus jedem Repo sobald das Vault-Verzeichnis existiert), Projekt-Repo und (nur on-demand bei expliziter Anfrage) aktiver TaskNote (vault-bezogen). Nutzt context-resolve.py fuer Klassifikation + Task-Match. USE WHEN neue Session, Session Start, Kontext laden, context-load, was ist das Projekt, aktiver Sprint, Backlog-Tasks, sessionStart hook.
 allowed-tools: Read, Bash, Glob, Grep, AskUserQuestion, Skill
 ---
 
@@ -13,11 +13,13 @@ kann aber auch manuell aufgerufen werden.
 ## Session-Start (Hook-Kontext)
 
 Der `SessionStart`-Hook (Claude Code) bzw. `inject-project-context.sh` (Cursor)
-injiziert beim Start bereits: Projekt-ID, Knowledge-Pfad, 2-Level-Tree und aktive
-TaskNotes (`in-progress`). **Diesen injizierten Kontext zuerst lesen** — nicht
-blind antworten. Dieser Skill (beim ersten User-Prompt getriggert) ergaenzt ihn
-um Task-Match, Sprint sowie Wiki- und Repo-Semantik. Hook-Log (falls Repo `logs/`):
-`logs/hook-session-start.log`.
+injiziert beim Start bereits den **Backlog-Stand** (PRIMÄR): offene Milestones
+(name, done/total, offene Subtask-IDs), In-Progress-Tasks und empfohlene nächste
+To-Dos — plus Projekt-ID, Knowledge-Pfad und 2-Level-Tree. **Diesen injizierten
+Kontext zuerst lesen** — nicht blind antworten. **Vault-TaskNotes werden NICHT
+mehr automatisch injiziert** (nur on-demand, siehe Layer 1). Dieser Skill (beim
+ersten User-Prompt getriggert) ergaenzt den Header um Backlog-Sprint-Match, Wiki-
+und Repo-Semantik. Hook-Log (falls Repo `logs/`): `logs/hook-session-start.log`.
 
 ## Flat-Install-Pfade
 
@@ -70,29 +72,30 @@ ist vault-bezogen.
 
 ## Workflow — 4-Layer Retrieval
 
-Deterministische Task-Match-Schicht zuerst, danach hybride qmd-Suche fuer Wiki
-und (bedingt) Projekt-Repo. Keine Schicht stoppt am ersten Treffer.
+**Primärer Auto-Layer ist Layer 1.5 (Backlog-Sprint, repo-lokal)** — Backlog.md-
+Tasks/Milestones sind die Arbeits-Quelle und werden bei jedem Session-Einstieg
+geladen. Danach hybride qmd-Suche fuer Wiki und (bedingt) Projekt-Repo. **Layer 1
+(Vault-TaskNote-Match) laeuft NUR on-demand** — bei expliziter TaskNote-/Vault-
+Anfrage. Keine Schicht stoppt am ersten Treffer.
 
-### Layer 1 — Aktiver Task (deterministisch, ~200ms)
+Reihenfolge im Auto-Fall: **1.5 → 2 → 3 → 4**. Layer 1 wird nur eingeschoben,
+wenn der Prompt explizit eine TaskNote/Vault-Sache referenziert.
+
+### Layer 1.5 — Aktiver Sprint (Backlog.md, PRIMÄR/auto, no-op außerhalb Repos)
+
+**Der primäre Auto-Layer.** Anzeige des repo-lokalen Sprint-Stands als aktiver
+Arbeitskontext. `sprint_bridge.py` ist **read-only** (parst nur `backlog …
+--plain` + `tn next` JSON, schreibt nichts).
+
+**Klassifikation zuerst (für Layer-2/3-Gating):** `$RESOLVE` einmal laufen lassen,
+um `classification.type` und `classification.stages` zu bekommen. Im Auto-Fall
+wird daraus NUR die Klassifikation genutzt (steuert, ob Layer 2/3 triggern) — der
+TaskNote-`clear_match`/`candidates[]`-Teil wird hier **nicht** konsumiert (das ist
+on-demand Layer 1). Wenn das Vault-Verzeichnis fehlt, kommen die Kandidaten leer
+zurück; die Klassifikation funktioniert trotzdem.
 
 ```bash
 redactor wrap -- uv run --script "$RESOLVE" "<user-anfrage>" --limit 5
-```
-
-JSON lesen: `classification.type`, `classification.stages`, `clear_match`,
-`candidates[]`, `vault_exists`.
-
-Verhalten:
-- `clear_match: true` → Top-Task laden (Body, `blockedBy`, `questions`, `tracks`, Resume State).
-- Mehrere aehnliche Kandidaten → User fragen (AskUserQuestion), welcher aktiv ist.
-- Kein Kandidat → Trivial/off-topic direkt antworten; sonst fragen: neuer Task, freie Session, anderes Projekt.
-
-### Layer 1.5 — Aktiver Sprint (Backlog.md, additiv, no-op außerhalb Repos)
-
-Rein additive Anzeige des repo-lokalen Sprint-Stands. `sprint_bridge.py` ist
-**read-only** (parst nur `backlog … --plain` + `tn next` JSON, schreibt nichts).
-
-```bash
 redactor wrap -- uv run --script "$SPRINT" resolve-repo
 ```
 
@@ -116,20 +119,38 @@ liefert; entspricht `sprint_bridge status → active.next_open_task`). Plus, fal
 vorhanden, `tn next` (top 5) als kurze Liste.
 
 **Frage (nur beim echten Einstieg):** `AskUserQuestion` „Womit weitermachen?"
-**nur** stellen, wenn Layer 1 **kein** `clear_match` hatte **und** es eine echte
-Wahl gibt (≥1 offener Milestone-Task **oder** ≥1 `candidate_tn`). Sonst: nur den
-Block anzeigen, **nicht** fragen (kein Nagging bei jedem Prompt).
-- Optionen = offene Milestone-Tasks (`<id> – <title>`) + Top-`candidate_tns`
-  (`<tn-id> – <title>`).
+**nur** stellen, wenn der Prompt keinen klaren Backlog-Task referenziert **und**
+es eine echte Wahl gibt (≥1 offener Milestone-Task). Sonst: nur den Block
+anzeigen, **nicht** fragen (kein Nagging bei jedem Prompt).
+- Optionen = offene Milestone-Tasks (`<id> – <title>`). `candidate_tns` werden
+  hier **nicht** als Optionen angeboten — TaskNotes sind on-demand (Layer 1).
 - Wahl Milestone-Task → `backlog task <id> --plain` laden, als aktiven Arbeits-
   kontext setzen.
-- Wahl tn → diese tn als aktiven Kontext führen (Body via Layer-1-Task-Load).
-  Dekomposition/Sprint-Anlage macht Layer 1.5 **nicht** — das ist `/sprint-start`
-  (separater, hier nicht installierter Skill).
 
-Edge Cases: `tn_available: false` → tn-Zeile weglassen, Milestones trotzdem
-zeigen. Keine offenen Tasks und keine tns → nur „Sprint X: n/m done" anzeigen,
-keine Frage.
+Edge Cases: Keine offenen Tasks → nur „Sprint X: n/m done" anzeigen, keine Frage.
+`tn next` wird hier **nicht** automatisch gezogen — nur on-demand (Layer 1).
+
+### Layer 1 — Aktiver Vault-TaskNote (deterministisch, NUR on-demand)
+
+**Läuft NICHT im Auto-Fall.** Nur einschieben, wenn der Prompt explizit eine
+Vault-TaskNote referenziert — z.B. `tn next`, eine konkrete TaskNote-ID, „aktive
+TaskNotes", „mein Task im Vault", oder ein Vault-Projekt. Im normalen Session-
+Einstieg sind Backlog-Tasks (Layer 1.5) die Arbeits-Quelle, nicht TaskNotes.
+
+Die Klassifikation (`$RESOLVE`) ist im Auto-Fall bereits gelaufen (siehe Layer
+1.5). Bei expliziter TaskNote-Anfrage deren Ergebnis konsumieren:
+
+JSON lesen: `classification.type`, `clear_match`, `candidates[]`, `vault_exists`.
+
+Verhalten:
+- `vault_exists: false` → kein Vault zum Durchsuchen; dem User sagen, dass keine
+  TaskNotes verfügbar sind.
+- `clear_match: true` → Top-Task laden (Body, `blockedBy`, `questions`, `tracks`, Resume State).
+- Mehrere aehnliche Kandidaten → User fragen (AskUserQuestion), welcher gemeint ist.
+- Kein Kandidat → dem User sagen, dass keine passende TaskNote gefunden wurde.
+
+Zusätzlich `tn next` (top 5) zeigen, wenn explizit danach gefragt
+(`tn_available` aus survey berücksichtigen).
 
 ### Layer 2 — Wiki-Semantik (qmd hybrid, ~3-12s)
 
@@ -141,9 +162,9 @@ redactor wrap -- qmd query "<user-anfrage>" -c Wiki -n 5
 ```
 
 Skip wenn:
-- **`2` steht NICHT in `classification.stages`** (maßgeblich). Z.B. `type: status` → `stages: [1]`: deterministischer Task + Backlog (Layer 1/1.5) reicht, qmd-Semantik überspringen.
+- **`2` steht NICHT in `classification.stages`** (maßgeblich). Z.B. `type: status` → `stages: [1]`: Backlog-Sprint (Layer 1.5) reicht, qmd-Semantik überspringen.
 - `classification.type == "lookup"` mit konkreter Task-ID (`\b[a-z]{2,6}-\d+\b` matched)
-- Layer 1 lieferte `clear_match: true` mit Top-Score > 90 UND Query enthaelt Task-ID oder Projektname
+- On-demand Layer 1 lieferte `clear_match: true` mit Top-Score > 90 UND Query enthaelt Task-ID oder Projektname
 
 Sonst (wenn `2 in stages`): triggern. Liefert verwandte Topics/References/Concepts, die der
 Frontmatter-Scorer strukturell nicht sieht.
@@ -161,13 +182,14 @@ Holt repo-lokale Docs (`CLAUDE.md`, `knowledge/`, `README.md`, ADRs) ohne grep-L
 
 ### Layer 4 — Synthese + Konflikt-Check
 
-- Aktiver Task (Layer 1) ist primaerer Steuerlayer.
+- Aktiver Sprint (Layer 1.5, Backlog.md) ist der primaere Steuerlayer.
+- Ein on-demand geladener Vault-TaskNote (Layer 1) steuert nur, wenn explizit angefragt.
 - Wiki-Treffer (Layer 2) als „Verwandtes Wissen" zeigen.
 - Repo-Treffer (Layer 3) als „Repo-Kontext".
-- **Konflikte explizit zeigen**: Wenn Task `status: action` aber Layer 2/3 „blocked"/„abgebrochen" sagt → Hinweiszeile, nicht stillschweigend folgen.
-- **Staleness-Marker**: Top-Task `reviewed_at` > 7 Tage alt → Hinweis.
+- **Konflikte explizit zeigen**: Wenn ein Task `status: action`/In Progress ist, aber Layer 2/3 „blocked"/„abgebrochen" sagt → Hinweiszeile, nicht stillschweigend folgen.
+- **Staleness-Marker**: on-demand geladener TaskNote mit `reviewed_at` > 7 Tage alt → Hinweis.
 
-### Task-Load Details (bei Layer 1 Match)
+### Task-Load Details (bei on-demand Layer 1 Match)
 
 - Task-Body lesen (Targeted Sections wenn lang: Frontmatter + Resume State + letzte 2 Changelog-Eintraege + nextAction-Section).
 - `blockedBy`, `questions`, `tracks` (oder Legacy `cc_*`) auswerten.
@@ -206,17 +228,16 @@ schliessen — Antwort in Question, Task-Changelog und Review-Felder aktualisier
 ### Context geladen
 
 Projekt: <project>
-Aktiver Task: [[...]] · Status: ...
 Query-Type: `...`
-Open Questions: ...
-Resume State: vorhanden / nein
-Suggested Skills: ...
-Staleness: <X Tage seit reviewed_at> [Warnung falls > 7]
 
-### Aktiver Sprint (Backlog.md)   <- nur wenn CWD-Repo backlog/ hat
+### Aktiver Sprint (Backlog.md, PRIMÄR)   <- nur wenn CWD-Repo backlog/ hat
 - <milestone> · n/m done · offen: <id>, <id>
 - **Nächster Task:** <id> – <title>   (nächster offener Task in Reihenfolge)
-- tn next: <tn-id> – <title> (nur wenn tn_available + Treffer)
+- In Progress: <id> – <title>
+
+### Aktiver TaskNote (Vault)   <- NUR wenn on-demand explizit geladen
+- [[...]] · Status: ... · Open Questions: ... · Resume State: vorhanden / nein
+- Suggested Skills: ... · Staleness: <X Tage seit reviewed_at> [Warnung falls > 7]
 
 ### Verwandtes Wissen (qmd Wiki)
 - [[Atlas/Wiki/...]] (NN%) — kurzer Snippet

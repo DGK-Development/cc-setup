@@ -1,9 +1,11 @@
 ---
 id: CCS-006
 title: 'Backlog auto-load primär, Vault-TaskNotes nur on-demand'
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-06-04 20:44'
+updated_date: '2026-06-04 21:21'
 labels:
   - context-load
   - hooks
