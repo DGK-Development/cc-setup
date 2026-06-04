@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-04 20:44'
-updated_date: '2026-06-04 21:21'
+updated_date: '2026-06-04 22:14'
 labels:
   - context-load
   - hooks
@@ -23,14 +23,20 @@ SessionStart-Hook, context-load und templates/CLAUDE.md umstellen: Backlog.md-Ta
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SessionStart-Hook injiziert Backlog-Stand auch ohne gebundenen Milestone: Milestones (name, done/total, offene Subtask-IDs), dann In-Progress-Tasks, dann empfohlene nächste To-Dos; Fallback auf backlog task list wenn keine Milestones
-- [ ] #2 TaskNotes-Auto-Block (in-progress-Liste) aus inject-project-context.sh entfernt
-- [ ] #3 userprompt-context-match.sh: injizierte context-load-Instruktion ist Backlog-zentriert; TaskNotes nur bei expliziter Anfrage
-- [ ] #4 context-load SKILL.md: Layer 1.5 (Backlog) ist primärer Auto-Layer, Layer 1 (TaskNote-Match) nur on-demand
-- [ ] #5 templates/CLAUDE.md Runtime-Vertrag angepasst: SessionStart druckt Backlog-Stand statt aktive TaskNotes
+- [x] #1 SessionStart-Hook injiziert Backlog-Stand auch ohne gebundenen Milestone: Milestones (name, done/total, offene Subtask-IDs), dann In-Progress-Tasks, dann empfohlene nächste To-Dos; Fallback auf backlog task list wenn keine Milestones
+- [x] #2 TaskNotes-Auto-Block (in-progress-Liste) aus inject-project-context.sh entfernt
+- [x] #3 userprompt-context-match.sh: injizierte context-load-Instruktion ist Backlog-zentriert; TaskNotes nur bei expliziter Anfrage
+- [x] #4 context-load SKILL.md: Layer 1.5 (Backlog) ist primärer Auto-Layer, Layer 1 (TaskNote-Match) nur on-demand
+- [x] #5 templates/CLAUDE.md Runtime-Vertrag angepasst: SessionStart druckt Backlog-Stand statt aktive TaskNotes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+SessionStart-Hook injiziert Backlog-Stand PRIMAER (Milestones done/total + offene Subtask-IDs, In-Progress, naechste To-Dos; Fallback backlog task list); TaskNotes-Auto-Block entfernt. userprompt-Hook + context-load SKILL (Layer 1.5 primaer, Layer 1 on-demand) + templates/CLAUDE.md Backlog-zentriert. no-op ohne backlog/. 49 Tests gruen.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 just test passes
+- [x] #1 just test passes
 <!-- DOD:END -->

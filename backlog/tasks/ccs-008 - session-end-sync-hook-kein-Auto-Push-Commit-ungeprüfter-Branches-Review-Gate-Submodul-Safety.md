@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-04 20:57'
-updated_date: '2026-06-04 21:21'
+updated_date: '2026-06-04 22:14'
 labels:
   - infra
   - safety
@@ -25,12 +25,12 @@ stop-workflow.sh übergibt an einen inline-Claude (session-stop), der automatisc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Sync-Hook pusht keinen Branch mit ungeprüften/unreviewed Commits automatisch (Opt-in statt Opt-out)
-- [ ] #2 Beim Pushen eines Parent-Commits mit geändertem Submodul-Gitlink wird verifiziert, dass der referenzierte Submodul-Commit auf dem Submodul-Remote existiert (sonst Abbruch + Hinweis)
-- [ ] #3 Auto-Commit substanzieller Artefakte (z.B. neue Backlog-Milestones) nur mit explizitem Signal, nicht stillschweigend bei jedem Stop
-- [ ] #4 pkm-sync-stop.sh + stop-workflow.sh aus ~/.claude/hooks/ als managed source ins Repo vendored (hooks/), gehaertet
-- [ ] #5 setup.sh deployt den Stop-Hook (kopiert vendored Stop-Scripts + traegt Stop-Event in settings.json ein)
-- [ ] #6 templates/skills/session-stop/SKILL.md: Commit-Regel Branch!=main->auto entfernt, Push nur explizit, Submodul-Pointer-Check als Anweisung
+- [x] #1 Sync-Hook pusht keinen Branch mit ungeprüften/unreviewed Commits automatisch (Opt-in statt Opt-out)
+- [x] #2 Beim Pushen eines Parent-Commits mit geändertem Submodul-Gitlink wird verifiziert, dass der referenzierte Submodul-Commit auf dem Submodul-Remote existiert (sonst Abbruch + Hinweis)
+- [x] #3 Auto-Commit substanzieller Artefakte (z.B. neue Backlog-Milestones) nur mit explizitem Signal, nicht stillschweigend bei jedem Stop
+- [x] #4 pkm-sync-stop.sh + stop-workflow.sh aus ~/.claude/hooks/ als managed source ins Repo vendored (hooks/), gehaertet
+- [x] #5 setup.sh deployt den Stop-Hook (kopiert vendored Stop-Scripts + traegt Stop-Event in settings.json ein)
+- [x] #6 templates/skills/session-stop/SKILL.md: Commit-Regel Branch!=main->auto entfernt, Push nur explizit, Submodul-Pointer-Check als Anweisung
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -39,7 +39,13 @@ stop-workflow.sh übergibt an einen inline-Claude (session-stop), der automatisc
 Scope-Entscheidung (User 2026-06-04): Sync-Hooks liegen aktuell NUR in ~/.claude/hooks/ (pkm-sync-stop.sh, stop-workflow.sh), nicht im Repo. Entscheidung: ins cc-setup-Repo vendoren + via setup.sh deployen (cc-setup wird Single-Source auch fuer Stop-Hook). Push-Gate-Mechanik: NIE auto-pushen (commit-only lokal); Push immer manuell/human; substanzielle Auto-Commits nur mit explizitem Signal. Live-Hooks in ~/.claude/ werden NICHT angefasst (Deploy-Grenze: nur Repo + Test-Home).
 <!-- SECTION:NOTES:END -->
 
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+stop-workflow.sh + pkm-sync-stop.sh als managed source nach hooks/ vendored + gehaertet: kein git push mehr (rg-Treffer 0), submodule_push_guard fuer Gitlink-Konsistenz. session-stop SKILL: Commit nur auf explizites Signal (Branch!=main-Auto entfernt), Push nie automatisch. setup.sh deployt Stop-Hook (settings.json Stop-Event, idempotent). Externe Sub-Hooks (/Users/niclasedge/.claude/...) als Follow-up notiert.
+<!-- SECTION:FINAL_SUMMARY:END -->
+
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 just test passes
+- [x] #1 just test passes
 <!-- DOD:END -->

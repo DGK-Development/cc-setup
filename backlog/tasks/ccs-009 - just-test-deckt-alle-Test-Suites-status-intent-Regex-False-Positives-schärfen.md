@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-04 20:57'
-updated_date: '2026-06-04 21:21'
+updated_date: '2026-06-04 22:14'
 labels:
   - tests
   - context-load
@@ -24,11 +24,17 @@ Zwei Review-Funde (CCS-003-Review-Session). (1) just test läuft nur test_sprint
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 just test (bzw. das Test-Recipe) führt sprint_bridge + session_analyze + session_waste Suites aus (alle 41 Tests grün)
-- [ ] #2 status-intent-Regex unterscheidet Status-Intent von erklärungsbedürftigen Code-Fragen (status-Intent-Gap matcht nicht mehr fälschlich als type:status)
+- [x] #1 just test (bzw. das Test-Recipe) führt sprint_bridge + session_analyze + session_waste Suites aus (alle 41 Tests grün)
+- [x] #2 status-intent-Regex unterscheidet Status-Intent von erklärungsbedürftigen Code-Fragen (status-Intent-Gap matcht nicht mehr fälschlich als type:status)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+just test laeuft repo-lokal alle 4 Suites (49 gruen, vorher 14 gegen Submodul). context-resolve.py EXPLAIN_MARKER_RE-Negativguard verhindert status-FP bei erklaerungsbeduerftigen Fragen; neue test_context_resolve.py (8 Regressionstests).
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 just test passes
+- [x] #1 just test passes
 <!-- DOD:END -->
