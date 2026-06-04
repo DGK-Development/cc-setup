@@ -3,9 +3,11 @@ id: CCS-009
 title: >-
   just test deckt alle Test-Suites + status-intent-Regex False-Positives
   schärfen
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-06-04 20:57'
+updated_date: '2026-06-04 21:21'
 labels:
   - tests
   - context-load

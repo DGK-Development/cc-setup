@@ -86,6 +86,16 @@ def rel(path: Path, vault: Path) -> str:
         return path.as_posix()
 
 
+# Erklärungs-/Code-Marker: signalisieren, dass die Query qmd-Semantik (Layer 2/3)
+# braucht, auch wenn ein Status-Wort wie "status"/"offen" vorkommt. Verhindert
+# False-Positives wie "wie funktioniert der status-intent code" oder
+# "status-Intent-Gap", die sonst als reiner Status-Intent (stages:[1]) durchfallen.
+EXPLAIN_MARKER_RE = re.compile(
+    r"\b(wie|warum|weshalb|wieso|erklär|erklaer|funktioniert|code|implementier|"
+    r"debug|fix|bug|gap|frage|fragen)\b",
+)
+
+
 def classify(query: str) -> dict[str, Any]:
     q = query.lower()
     if re.search(r"\b(wo|where|pfad|liegt|finde)\b", q):
@@ -95,7 +105,9 @@ def classify(query: str) -> dict[str, Any]:
     if re.search(r"\b(vs|vergleich|unterschied|gegenueber|gegenüber)\b", q):
         return {"type": "comparison", "confidence": 0.7, "stages": [1, 2, 3]}
     # Status/Todo/Überblick: deterministischer Task+Backlog reicht — qmd-Semantik (2/3) überspringen.
-    if re.search(
+    # Aber NICHT bei erklärungsbedürftigen Fragen (Erklärungs-/Code-Marker) — die
+    # brauchen qmd-Semantik und fallen daher auf explainer/goal-traversal durch.
+    if not EXPLAIN_MARKER_RE.search(q) and re.search(
         r"\b(status|stand|todos?|to-?dos?|offene|offen|überblick|ueberblick|overview|"
         r"nächste|naechste|next|was steht an|woran)\b",
         q,

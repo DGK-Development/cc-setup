@@ -47,6 +47,6 @@ validate: bundle
 dev:
     claude --plugin-dir "{{justfile_directory()}}/dist/cc-setup"
 
-# Sprint-Bridge-Tests
+# Alle Test-Suites (repo-lokal in scripts/): sprint-bridge + session-analyse + waste + context-resolve
 test:
-    cd vendor/cc-plugin-project-context/scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py -v
+    cd scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py test_session_analyze.py test_session_waste.py test_context_resolve.py -v
