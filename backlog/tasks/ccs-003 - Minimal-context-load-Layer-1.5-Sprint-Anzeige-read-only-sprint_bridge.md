@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-03 22:29'
-updated_date: '2026-06-04 20:43'
+updated_date: '2026-06-04 20:58'
 labels: []
 dependencies: []
 references:
@@ -65,6 +65,8 @@ context-load SKILL.md: Layer 1.5 zwischen Layer 1/2; SPRINT-Pfadvar; Output-Bloc
 2026-06-04 21:57 (aus CCS-004 entdeckt): status-Intent-Skip ist REGRESSED/dormant. SKILL.md (Zeile 127) dokumentiert type:status -> stages:[1] (qmd-Layer-2-Skip), aber classify() in context-resolve.py emittiert in KEINER Source-Kopie (vendor-Submodul, Plugin-Cache, Marketplace) einen status-Typ -> alle Intents enthalten Stage 2 -> Skip greift nie. Wurde laut CHANGELOG 20:59 live in ~/.claude gebaut+gebenchmarkt (-42% Turns), aber Source-Propagation fehlt. Follow-up: status-Intent in classify() verdrahten + bundle.
 
 2026-06-04 Review-Session (Org-konform, isolierter Subagent): Code-Review der ungeprueften Branch-Aenderungen durchgefuehrt. CCS-003-Kern (sprint_bridge.py read-only, Layer 1.5, status-intent in vendor 7b0f6b3) = sauber, 41 Tests gruen (14 just test + 27 Parent). status-Intent-Gap war KEIN Source-Bug (Fix in vendor 7b0f6b3 gepusht), nur Bundle/Install zu plugin-cache+marketplace offen. => CCS-003 VERIFY-READY (wartet auf User-Done). Offen ausserhalb CCS-003-Scope: Submodul d55c6c3 ungepusht (kaputter Remote-Pointer), bundle/install.
+
+2026-06-04 Deployment-Teil (human-gegated, vom User freigegeben): Submodul d55c6c3 -> origin/main GEPUSHT + Parent (a490258 Blocker-Fix, 2ea8253 CCS-005-Milestone) GEPUSHT. Kaputter Remote-Pointer damit REPARIERT (origin-Gitlink d55c6c3 existiert jetzt auf Submodul-Remote). just bundle blockiert an bundle.sh:66 (bare python3) -> getrackt in CCS-005.05. status-intent LIVE-Aktivierung haengt am stale Plugin (Marketplace-Clone 0927438) -> getrackt in CCS-005 (.06/.08/.09). Neue Follow-ups: CCS-008 (Sync-Hook Auto-Push-Hazard), CCS-009 (just test Coverage + Regex-FP).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
