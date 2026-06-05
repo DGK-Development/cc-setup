@@ -1,25 +1,27 @@
-# cc-setup — Skills + Agents + Hooks installieren (kein Plugin)
+# cc-setup — Skills + Agents + Hooks deployen (kein Plugin)
 
 default:
     @just --list
 
-# Einmal-Setup: Skills + Agents + Hooks + Vault (kein Plugin)
-setup vault="":
+# Deploy: Skills + Agents + Hooks + Vault flach ins Ziel-Home (default ~/.claude)
+deploy target="" vault="":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -n "{{vault}}" ]]; then
-      bash scripts/setup.sh --vault "{{vault}}"
-    else
-      bash scripts/setup.sh
-    fi
+    args=()
+    [[ -n "{{target}}" ]] && args+=(--home "{{target}}")
+    [[ -n "{{vault}}" ]] && args+=(--vault "{{vault}}")
+    bash scripts/deploy.sh "${args[@]}"
+
+# Alias: just setup → just deploy (Rückwärtskompatibilität)
+setup vault="": (deploy "" vault)
 
 # Nur Dep-Status prüfen (keine Änderungen)
 check:
-    bash scripts/setup.sh --check
+    bash scripts/deploy.sh --check
 
-update: setup
+update: deploy
 
-# Quellen aus Vault/Cursor nach templates/ ziehen (manuell, selten nötig)
+# Quellen aus Vault/Cursor nach skills/ + agents/ ziehen (manuell, selten nötig)
 sync-sources:
     bash scripts/sync-from-sources.sh
 
@@ -30,12 +32,13 @@ sync-local-ci:
 pull:
     git submodule update --init --remote
 
-bundle:
-    bash scripts/bundle.sh
+# Debug-Bundle in einen inspizierbaren Ordner bauen (deploy nutzt ein Temp-Dir)
+bundle out="dist/cc-setup":
+    bash scripts/bundle.sh "{{out}}"
 
-# Vault nachträglich setzen (ohne vollständigen Setup-Durchlauf)
+# Vault nachträglich setzen (ohne vollständigen Deploy-Durchlauf)
 install-vault vault="$HOME/GITHUB/ObsidianPKM":
-    bash scripts/setup.sh --vault "{{vault}}"
+    bash scripts/deploy.sh --vault "{{vault}}"
 
 # Alle Test-Suites (repo-lokal in scripts/): sprint-bridge + session-analyse + waste + context-resolve
 test:

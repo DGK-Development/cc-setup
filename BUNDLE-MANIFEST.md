@@ -1,17 +1,20 @@
 # cc-setup bundle manifest
 
-What gets installed to `~/.claude/skills/` via `just setup` (flat install, no plugin).
+What gets installed to `~/.claude/skills/` via `just deploy` (flat install, no plugin).
+Sources are flat in the repo root (`skills/`, `agents/`, `CONTRACT.md`, `settings.json`,
+`hooks/`, `commands/`, runtime `scripts/`). The build runs in an ephemeral temp dir —
+`dist/` is not persisted (`just bundle` only for debug inspection).
 
-## Plugin (`~/.claude/skills/cc-setup/`)
+## cc-setup skill dir (`~/.claude/skills/cc-setup/`)
 
-Single `@skills-dir` plugin — hooks, scripts, agents, skills.
+Hosts the SPOC contract skill plus shared hooks + runtime scripts.
 
 | Component | Source | Notes |
 |---|---|---|
-| Hooks | cc-plugin + redactor merge | SessionStart, UserPromptSubmit, Pre/PostToolUse |
-| Scripts | repo-local `scripts/` | context-resolve, sprint_bridge, tasknotes_cli, qmd-ensure, context-deps |
-| **Agents** | ObsidianPKM `.claude/agents/` | SPOC subagents for `Agent` tool |
-| Skills | see below | namespaced `/cc-setup:<name>` |
+| Hooks | repo-local `hooks/` + redactor merge | SessionStart, UserPromptSubmit, Stop, Pre/PostToolUse |
+| Scripts | repo-local `scripts/` (whitelist) | context-resolve, sprint_bridge, tasknotes_cli, qmd-ensure, context-deps |
+| **Agents** | repo-local `agents/` (synced from ObsidianPKM) | SPOC subagents for `Agent` tool → `~/.claude/agents/` |
+| Skills | see below | flat `/<name>` (no plugin namespace) |
 
 ## Agents (synced — `just sync-sources`)
 
@@ -35,8 +38,8 @@ Refresh: `just sync-sources` copies from `OBSIDIANPKM_ROOT` (default `~/GITHUB/O
 | `audit` | Session log + config audit | self-contained |
 | `cc-setup` | SPOC contract | self-contained |
 | `check-links` | Broken wiki links | vault |
-| `context-init` | Project bootstrap | command in plugin |
-| `context-load` | Task + wiki context | uses plugin scripts + `OBSIDIAN_VAULT_PATH` |
+| `context-init` | Project bootstrap | command (`commands/context-init.md`) |
+| `context-load` | Task + wiki context | uses cc-setup scripts + `OBSIDIAN_VAULT_PATH` |
 | `daily-review` | Effort scan | vault Efforts/ |
 | `knowledge` | knowledge get/finish | project knowledge/ |
 | `local-ci` | Pre-push CI gate | self-contained assets |
@@ -54,13 +57,15 @@ Install only if you work daily in ObsidianPKM — sync manually or extend `sync-
 
 Reason: heavy vault coupling, large script trees, or niche use.
 
-## Flat skills (also copied by `just setup`)
+## Flat skills (all copied by `just deploy`)
+
+All tier-1 skills install flat to `~/.claude/skills/<name>/` and are invoked as `/<name>`
+(no plugin namespace). Example:
 
 | Path | Invoke | Why flat |
 |---|---|---|
-| `~/.claude/skills/local-ci/` | `/local-ci` | backward compatible, self-contained |
-
-Other skills: use `/cc-setup:<skill>` after plugin install.
+| `~/.claude/skills/local-ci/` | `/local-ci` | self-contained |
+| `~/.claude/skills/cc-setup/` | `/cc-setup` | SPOC contract + hosts shared scripts/hooks |
 
 ## Platform support
 
@@ -70,6 +75,6 @@ Other skills: use `/cc-setup:<skill>` after plugin install.
 | Linux | full | same |
 | Windows | partial | **Git Bash or WSL** for hooks/shell scripts; `just` via winget; redactor has `install-win` |
 
-Hooks and cc-plugin scripts are bash — native Windows CMD/PowerShell without WSL is **not** supported.
+Hooks and cc-setup scripts are bash — native Windows CMD/PowerShell without WSL is **not** supported.
 
-`just setup` uses `rsync` when available, else `cp -a` (Git Bash/WSL).
+`just deploy` uses `rsync` when available, else `cp -a` (Git Bash/WSL).

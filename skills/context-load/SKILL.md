@@ -36,7 +36,7 @@ SPRINT="$HOME/.claude/skills/cc-setup/scripts/sprint_bridge.py"
 
 Vault-Aufloesung (erste nicht-leere): `$OBSIDIAN_VAULT_PATH` → `$TASKNOTES_VAULT`
 → `~/GITHUB/ObsidianPKM`. Setze sie einmalig in deinem Shell-Profil (macht
-`setup.sh`), damit die Bash-Tool-Calls den Vault finden.
+`deploy.sh`), damit die Bash-Tool-Calls den Vault finden.
 
 ## WICHTIG — redactor strict mode
 

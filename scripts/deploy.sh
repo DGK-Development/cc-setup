@@ -1,41 +1,50 @@
 #!/usr/bin/env bash
-# setup.sh — cc-setup installieren: Skills + Agents + Hooks + Vault (kein Plugin)
+# deploy.sh — cc-setup deployen: Skills + Agents + Hooks + Vault (kein Plugin)
 #
 # Usage:
-#   bash scripts/setup.sh                    # interaktiv
-#   bash scripts/setup.sh --vault /pfad/PKM  # Vault explizit setzen
-#   bash scripts/setup.sh --check            # nur Dep-Status, keine Änderungen
-#   CC_SETUP_NONINTERACTIVE=1 bash scripts/setup.sh
+#   bash scripts/deploy.sh                      # interaktiv, Ziel ~/.claude
+#   bash scripts/deploy.sh /pfad/zum/.claude    # Ziel-Home als 1. Positionsarg
+#   bash scripts/deploy.sh --home /pfad/.claude # Ziel-Home explizit
+#   bash scripts/deploy.sh --vault /pfad/PKM    # Vault explizit setzen
+#   bash scripts/deploy.sh --check              # nur Dep-Status, keine Änderungen
+#   CC_SETUP_NONINTERACTIVE=1 bash scripts/deploy.sh
 #
-# Installiert:
-#   ~/.claude/skills/<name>/    — Skills flach (kein Plugin-Namespace)
-#   ~/.claude/agents/*.md       — Agents direkt
-#   ~/.claude/skills/cc-setup/  — Scripts + Hooks (auch cc-setup SPOC-Skill)
-#   ~/.claude/settings.json     — Hooks (SessionStart + UserPromptSubmit + Stop)
-#   ~/.claude/CLAUDE.md         — Managed SPOC-Contract-Block
-#   ~/.bashrc / ~/.zshrc        — OBSIDIAN_VAULT_PATH Export
+# Baut das Install-Tree in einem ephemeren Temp-Dir (kein persistiertes dist/)
+# und installiert von dort flach nach $CLAUDE_HOME:
+#   $CLAUDE_HOME/skills/<name>/    — Skills flach (kein Plugin-Namespace)
+#   $CLAUDE_HOME/agents/*.md       — Agents direkt
+#   $CLAUDE_HOME/skills/cc-setup/  — Scripts + Hooks (auch cc-setup SPOC-Skill)
+#   $CLAUDE_HOME/settings.json     — Hooks (SessionStart + UserPromptSubmit + Stop)
+#   $CLAUDE_HOME/CLAUDE.md         — Managed SPOC-Contract-Block
+#   ~/.bashrc / ~/.zshrc           — OBSIDIAN_VAULT_PATH Export
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+NONINTERACTIVE="${CC_SETUP_NONINTERACTIVE:-0}"
+
+CHECK_ONLY=0
+VAULT_ARG=""
+HOME_ARG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check)  CHECK_ONLY=1 ;;
+    --vault)  shift; VAULT_ARG="${1:-}" ;;
+    --home)   shift; HOME_ARG="${1:-}" ;;
+    --*)      echo "Unbekanntes Argument: $1" >&2; exit 2 ;;
+    *)        # erstes Nicht-Flag-Argument = Ziel-Home
+              if [[ -z "$HOME_ARG" ]]; then HOME_ARG="$1"; else echo "Unerwartetes Argument: $1" >&2; exit 2; fi ;;
+  esac
+  shift
+done
+
+# Ziel-Home: --home / Positionsarg > $CLAUDE_HOME-Env > $HOME/.claude
+CLAUDE_HOME="${HOME_ARG:-${CLAUDE_HOME:-$HOME/.claude}}"
 SKILLS_DIR="$CLAUDE_HOME/skills"
 AGENTS_DIR="$CLAUDE_HOME/agents"
 CC_SETUP_DIR="$SKILLS_DIR/cc-setup"   # SKILL.md + scripts/ + hooks/
 SETTINGS_JSON="$CLAUDE_HOME/settings.json"
 GLOBAL_CLAUDE="$CLAUDE_HOME/CLAUDE.md"
-NONINTERACTIVE="${CC_SETUP_NONINTERACTIVE:-0}"
-
-CHECK_ONLY=0
-VAULT_ARG=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --check)  CHECK_ONLY=1 ;;
-    --vault)  shift; VAULT_ARG="${1:-}" ;;
-    *) echo "Unbekanntes Argument: $1" >&2; exit 2 ;;
-  esac
-  shift
-done
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
 have()  { command -v "$1" >/dev/null 2>&1; }
@@ -79,7 +88,7 @@ dep_status() {
 # ── Banner ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  cc-setup — Skills & Agents installieren (kein Plugin)      ║"
+echo "║  cc-setup — Skills & Agents deployen (kein Plugin)          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -94,7 +103,7 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
   echo ""
   MISSING=0
   for c in uv jq qmd redactor; do have "$c" || MISSING=1; done
-  [[ "$MISSING" -eq 1 ]] && echo "Fehlende Dependencies — setup.sh ohne --check ausführen." && exit 1
+  [[ "$MISSING" -eq 1 ]] && echo "Fehlende Dependencies — deploy.sh ohne --check ausführen." && exit 1
   echo "Alle Dependencies vorhanden."
   exit 0
 fi
@@ -176,10 +185,12 @@ else
 fi
 echo ""
 
-# ── 3/5  Bundle bauen ──────────────────────────────────────────────────────────
-echo "── 3/5  Bundle bauen ────────────────────────────────────────────"
-bash "$ROOT/scripts/bundle.sh"
-DIST="$ROOT/dist/cc-setup"
+# ── 3/5  Bundle bauen (ephemer) ─────────────────────────────────────────────────
+echo "── 3/5  Bundle bauen (ephemeres Temp-Dir) ───────────────────────"
+BUILD="$(mktemp -d)"
+trap 'rm -rf "$BUILD"' EXIT
+DIST="$BUILD/cc-setup"
+bash "$ROOT/scripts/bundle.sh" "$DIST"
 [[ -d "$DIST" ]] || die "Bundle fehlgeschlagen — $DIST nicht vorhanden"
 echo ""
 
@@ -245,7 +256,7 @@ echo "── 5/5  CLAUDE.md · settings.json · Shell-Profil ──────�
 
 # 5a — CLAUDE.md managed block
 CONTRACT_SRC="$DIST/bootstrap/CONTRACT.md"
-BEGIN_MARK="<!-- BEGIN cc-setup (managed by setup.sh) -->"
+BEGIN_MARK="<!-- BEGIN cc-setup (managed by deploy.sh) -->"
 END_MARK="<!-- END cc-setup -->"
 
 if [[ -f "$CONTRACT_SRC" ]]; then
@@ -374,7 +385,7 @@ fi
 # ── Zusammenfassung ────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  Setup fertig                                                ║"
+echo "║  Deploy fertig                                               ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Skills:  $SKILLS_DIR/"

@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# bundle.sh — assemble dist/cc-setup tree for the flat install (scripts/setup.sh).
+# bundle.sh — assemble the cc-setup install tree from the flat repo sources.
+#
+# Usage:
+#   bash scripts/bundle.sh [OUT]
+#
+# OUT defaults to $ROOT/dist/cc-setup for ad-hoc debug inspection. deploy.sh
+# calls this with an ephemeral temp dir so dist/ is never persisted by a deploy.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_REDACTOR="$ROOT/vendor/hook-redactor"
-OUT="$ROOT/dist/cc-setup"
-TEMPLATES="$ROOT/templates"
+OUT="${1:-$ROOT/dist/cc-setup}"
 
 die() { echo "bundle: $*" >&2; exit 1; }
 
@@ -34,9 +39,7 @@ for dir in hooks commands; do
   fi
 done
 
-# skills: context-load kommt über den templates/skills-Copy weiter unten — kein eigener Schritt hier.
-
-# scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, setup.sh, …).
+# scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, deploy.sh, …).
 mkdir -p "$OUT/scripts"
 RUNTIME_SCRIPTS=(
   context-resolve.py
@@ -56,15 +59,15 @@ done
 
 echo "==> docs + contract"
 mkdir -p "$OUT/bootstrap"
-cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CLAUDE.md"
+cp "$ROOT/CONTRACT.md" "$OUT/bootstrap/CLAUDE.md"
 # Slim contract (no redactor appendix) — source for the global ~/.claude/CLAUDE.md.
-cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CONTRACT.md"
-if [[ -d "$TEMPLATES/agents" ]]; then
-  rsync -a "$TEMPLATES/agents/" "$OUT/agents/"
+cp "$ROOT/CONTRACT.md" "$OUT/bootstrap/CONTRACT.md"
+if [[ -d "$ROOT/agents" ]]; then
+  rsync -a "$ROOT/agents/" "$OUT/agents/"
 fi
-echo "==> copy bundled template skills (cc-setup, local-ci, …)"
-if [[ -d "$TEMPLATES/skills" ]]; then
-  rsync -a "$TEMPLATES/skills/" "$OUT/skills/"
+echo "==> copy bundled skills (cc-setup, local-ci, context-load, …)"
+if [[ -d "$ROOT/skills" ]]; then
+  rsync -a "$ROOT/skills/" "$OUT/skills/"
 fi
 
 echo "==> bundle audit script (single source of truth: scripts/session_analyze.py)"
@@ -73,8 +76,8 @@ if [[ -f "$ROOT/scripts/session_analyze.py" ]]; then
   cp "$ROOT/scripts/session_analyze.py" "$OUT/skills/audit/scripts/session_analyze.py"
 fi
 
-if [[ -f "$TEMPLATES/settings.json" ]]; then
-  cp "$TEMPLATES/settings.json" "$OUT/settings.json"
+if [[ -f "$ROOT/settings.json" ]]; then
+  cp "$ROOT/settings.json" "$OUT/settings.json"
 fi
 
 echo "==> merge hooks (project-context + redactor)"
@@ -119,4 +122,4 @@ else
 fi
 
 echo "==> done: $OUT"
-echo "    install: just setup   (deploys skills/agents/scripts/hooks flat into ~/.claude/)"
+echo "    install: just deploy   (deploys skills/agents/scripts/hooks flat into ~/.claude/)"

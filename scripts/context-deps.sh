@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# setup.sh — Dependency bootstrap for the project-context plugin.
+# context-deps.sh — Dependency bootstrap for the project-context runtime.
 #
 # Usage:
-#   bash scripts/setup.sh            # check + attempt installs + wire up env
-#   bash scripts/setup.sh --check    # report dependency status only, no changes
-#   bash scripts/setup.sh --vault /path/to/ObsidianPKM   # set vault explicitly
+#   bash scripts/context-deps.sh            # check + attempt installs + wire up env
+#   bash scripts/context-deps.sh --check    # report dependency status only, no changes
+#   bash scripts/context-deps.sh --vault /path/to/ObsidianPKM   # set vault explicitly
 #
 # Hard dependencies (all required for full function):
 #   uv        — runs the bundled uv-script Python tools
@@ -68,7 +68,7 @@ echo ""
 if [ "$CHECK_ONLY" -eq 1 ]; then
   MISSING=0
   for c in uv jq qmd redactor; do have "$c" || MISSING=1; done
-  [ "$MISSING" -eq 1 ] && { echo "Fehlende harte Dependencies — 'bash scripts/setup.sh' (ohne --check) ausfuehren."; exit 1; }
+  [ "$MISSING" -eq 1 ] && { echo "Fehlende harte Dependencies — 'bash scripts/context-deps.sh' (ohne --check) ausfuehren."; exit 1; }
   echo "Alle harten Dependencies vorhanden."
   exit 0
 fi
