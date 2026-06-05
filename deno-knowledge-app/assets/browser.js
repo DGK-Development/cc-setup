@@ -259,6 +259,94 @@
       .catch(function () { showModal(String(it.name), "Laden fehlgeschlagen (Netzwerk)"); });
   }
 
+  /* ---------- minimal, XSS-safe markdown → HTML (task modal) ---------- */
+  function mdEsc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function mdInline(s) {
+    // input is already HTML-escaped; we only add safe tags + sanitized links
+    s = s.replace(/`([^`]+)`/g, function (_m, c) { return "<code>" + c + "</code>"; });
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (_m, t, u) {
+      return /^(https?:\/\/|\/)/.test(u)
+        ? '<a href="' + u + '" target="_blank" rel="noopener">' + t + "</a>"
+        : t;
+    });
+    return s;
+  }
+  function stripFrontmatter(src) {
+    return String(src).replace(/^﻿?---\n[\s\S]*?\n---\n?/, "");
+  }
+  function mdToHtml(src) {
+    var lines = String(src).split("\n"), out = [], para = [], listType = null, items = [];
+    var inFence = false, fence = [];
+    function flushPara() {
+      if (para.length) { out.push("<p>" + mdInline(para.join(" ")) + "</p>"); para = []; }
+    }
+    function flushList() {
+      if (listType) {
+        out.push("<" + listType + ">" + items.join("") + "</" + listType + ">");
+        items = [];
+        listType = null;
+      }
+    }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (/^\s*```/.test(line)) {
+        if (inFence) {
+          out.push("<pre><code>" + fence.join("\n") + "</code></pre>");
+          fence = [];
+          inFence = false;
+        } else {
+          flushPara();
+          flushList();
+          inFence = true;
+        }
+        continue;
+      }
+      if (inFence) { fence.push(mdEsc(line)); continue; }
+      var h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) {
+        flushPara();
+        flushList();
+        var lvl = Math.min(h[1].length + 1, 6);
+        out.push("<h" + lvl + ">" + mdInline(mdEsc(h[2])) + "</h" + lvl + ">");
+        continue;
+      }
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        flushPara();
+        flushList();
+        out.push("<hr>");
+        continue;
+      }
+      var ol = line.match(/^\s*\d+\.\s+(.*)$/);
+      var ul = line.match(/^\s*[-*]\s+(.*)$/);
+      if (ol || ul) {
+        flushPara();
+        var t = ol ? "ol" : "ul";
+        if (listType && listType !== t) flushList();
+        listType = t;
+        var item = (ol ? ol[1] : ul[1]).replace(/^\[ \]\s?/, "☐ ").replace(/^\[[xX]\]\s?/, "☑ ");
+        items.push("<li>" + mdInline(mdEsc(item)) + "</li>");
+        continue;
+      }
+      flushList();
+      var bq = line.match(/^\s*>\s?(.*)$/);
+      if (bq) {
+        flushPara();
+        out.push("<blockquote>" + mdInline(mdEsc(bq[1])) + "</blockquote>");
+        continue;
+      }
+      if (line.trim() === "") { flushPara(); continue; }
+      para.push(mdEsc(line));
+    }
+    flushPara();
+    flushList();
+    if (inFence && fence.length) out.push("<pre><code>" + fence.join("\n") + "</code></pre>");
+    return out.join("\n");
+  }
+
   function showModal(title, content) {
     var prev = document.getElementById("kn-modal");
     if (prev) prev.remove();
@@ -266,10 +354,11 @@
       '<div class="kn-modal" id="kn-modal"><div class="kn-modal-box">' +
         '<div class="kn-modal-h"><b></b>' +
         '<button class="kn-modal-x" type="button" aria-label="schliessen">✕</button></div>' +
-        '<pre class="kn-modal-body"></pre></div></div>',
+        '<div class="kn-modal-body kn-md"></div></div></div>',
     );
     ov.querySelector("b").textContent = title;
-    ov.querySelector(".kn-modal-body").textContent = content;
+    // Content is markdown-rendered to a SAFE subset (all HTML escaped first).
+    ov.querySelector(".kn-modal-body").innerHTML = mdToHtml(stripFrontmatter(content));
     ov.addEventListener("click", function (e) { if (e.target === ov) ov.remove(); });
     ov.querySelector(".kn-modal-x").addEventListener("click", function () { ov.remove(); });
     document.body.appendChild(ov);

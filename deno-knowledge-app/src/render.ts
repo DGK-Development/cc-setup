@@ -360,8 +360,22 @@ const KANBAN_CSS = `
   border-bottom:1px solid var(--line-2,#1c2229); font-size:13px; }
 .kn-modal-h b{ flex:1; color:oklch(0.83 0.11 215); }
 .kn-modal-x{ background:none; border:0; color:var(--dim,#8a929c); cursor:pointer; font-size:14px; }
-.kn-modal-body{ margin:0; padding:14px 16px; overflow:auto; white-space:pre-wrap; word-break:break-word;
-  font-size:12px; line-height:1.5; color:var(--fg,#d7dee5); }
+.kn-modal-body{ margin:0; padding:14px 18px; overflow:auto; font-size:12.5px; line-height:1.55;
+  color:var(--fg,#d7dee5); word-break:break-word; }
+.kn-md h2,.kn-md h3,.kn-md h4{ margin:14px 0 6px; font-weight:700; line-height:1.3; }
+.kn-md h2{ font-size:15px; } .kn-md h3{ font-size:13.5px; }
+.kn-md h4{ font-size:12.5px; color:var(--dim,#8a929c); }
+.kn-md p{ margin:7px 0; }
+.kn-md ul,.kn-md ol{ margin:7px 0; padding-left:20px; } .kn-md li{ margin:2px 0; }
+.kn-md code{ background:var(--bg-grid,#0a0b0d); border:1px solid var(--line-2,#1c2229); border-radius:4px;
+  padding:1px 5px; font-size:11.5px; }
+.kn-md pre{ background:var(--bg-grid,#0a0b0d); border:1px solid var(--line-2,#1c2229); border-radius:7px;
+  padding:10px 12px; overflow:auto; }
+.kn-md pre code{ background:none; border:0; padding:0; }
+.kn-md blockquote{ margin:7px 0; padding:2px 12px; border-left:3px solid var(--line-3,#2a313a);
+  color:var(--dim,#8a929c); }
+.kn-md hr{ border:0; border-top:1px solid var(--line-2,#1c2229); margin:12px 0; }
+.kn-md a{ color:oklch(0.83 0.11 215); }
 `;
 
 export async function renderPage(
