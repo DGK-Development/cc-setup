@@ -21,10 +21,18 @@ export interface Milestone {
   total: number;
 }
 
+export interface LooseTask {
+  id: string;
+  title: string;
+  status: string;
+  file: string;
+}
+
 export interface SidebarProject extends ProjectRef {
   open_tasks: number;
   cost_7d: number;
   milestones: Milestone[];
+  looseTasks: LooseTask[];
   tn: number;
 }
 
@@ -138,7 +146,29 @@ export async function projectMilestones(repoPath: string): Promise<Milestone[]> 
     .map(([name, v]) => ({ name, done: v.done, total: v.total }));
 }
 
-/** Full sidebar aggregate: every discovered project with open tasks + 7d cost + milestones. */
+/** Backlog tasks WITHOUT a milestone (id/title/status/file), for the project-wide overview. */
+export async function projectLooseTasks(repoPath: string): Promise<LooseTask[]> {
+  const tasksDir = join(repoPath, "backlog", "tasks");
+  const out: LooseTask[] = [];
+  try {
+    for await (const e of Deno.readDir(tasksDir)) {
+      if (!e.isFile || !e.name.endsWith(".md")) continue;
+      const text = await readText(join(tasksDir, e.name));
+      if (text === null) continue;
+      if (frontmatterField(text, "milestone")) continue; // has a milestone → not loose
+      const id = frontmatterField(text, "id") || e.name.replace(/\.md$/, "");
+      out.push({
+        id,
+        title: frontmatterField(text, "title") || id,
+        status: frontmatterField(text, "status"),
+        file: e.name,
+      });
+    }
+  } catch { /* no backlog/tasks */ }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Full sidebar aggregate: every project with open tasks + 7d cost + milestones + loose tasks. */
 export async function collectSidebar(activeRepo: string): Promise<SidebarProject[]> {
   const projects = await discoverProjectsIn(projectRoots(), activeRepo);
   const tnCounts = await tnTaskCounts(); // one call; counts keyed by working_dir
@@ -146,12 +176,13 @@ export async function collectSidebar(activeRepo: string): Promise<SidebarProject
   for (const p of projects) {
     const open_tasks = await countOpenTasks(p.path);
     const milestones = await projectMilestones(p.path);
+    const looseTasks = await projectLooseTasks(p.path);
     let cost_7d = 0;
     try {
       cost_7d = await sevenDayCostNative(p.path);
     } catch { /* sessions unavailable → 0 */ }
     const tn = tnCounts.get(p.path.replace(/\/+$/, "")) ?? 0;
-    out.push({ ...p, open_tasks, cost_7d, milestones, tn });
+    out.push({ ...p, open_tasks, cost_7d, milestones, looseTasks, tn });
   }
   return out;
 }

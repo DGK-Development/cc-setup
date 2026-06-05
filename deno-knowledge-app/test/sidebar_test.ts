@@ -3,6 +3,7 @@ import {
   countOpenTasks,
   discoverProjectsIn,
   parseTnProjects,
+  projectLooseTasks,
   projectMilestones,
 } from "../src/collectors/sidebar.ts";
 import { join } from "@std/path";
@@ -65,6 +66,25 @@ Deno.test("parseTnProjects: {count,projects}, comma + ~ working_dirs, skips no-w
   assertEquals(m.get(home + "/git/cc-setup"), 7); // second of comma list
   assertEquals(m.get("/abs/GITHUB/inspire-ios"), 4); // trailing / trimmed
   assertEquals(m.has("null"), false);
+});
+
+Deno.test("projectLooseTasks returns only tasks WITHOUT a milestone (id/title/status)", async () => {
+  const repo = await Deno.makeTempDir();
+  const tasks = join(repo, "backlog", "tasks");
+  await Deno.mkdir(tasks, { recursive: true });
+  await Deno.writeTextFile(
+    join(tasks, "a.md"),
+    "---\nid: A-1\nstatus: To Do\nmilestone: m1\n---\n",
+  );
+  await Deno.writeTextFile(
+    join(tasks, "b.md"),
+    "---\nid: A-2\ntitle: Lose Aufgabe\nstatus: In Progress\n---\n",
+  );
+  const loose = await projectLooseTasks(repo);
+  assertEquals(loose.length, 1);
+  assertEquals(loose[0].id, "A-2");
+  assertEquals(loose[0].title, "Lose Aufgabe");
+  assertEquals(loose[0].status, "In Progress");
 });
 
 Deno.test("projectMilestones groups tasks by milestone with done/total", async () => {

@@ -38,8 +38,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# Ziel-Home: --home / Positionsarg > $CLAUDE_HOME-Env > $HOME/.claude
-CLAUDE_HOME="${HOME_ARG:-${CLAUDE_HOME:-$HOME/.claude}}"
+# Ziel-Home: --home / Positionsarg > $CLAUDE_HOME-Env > $CLAUDE_CONFIG_DIR > $HOME/.claude
+# $CLAUDE_CONFIG_DIR ist der Pfad, aus dem Claude Code tatsaechlich Skills/Settings
+# laedt (kann != ~/.claude sein) — als Default davor, damit `just deploy` ohne Args
+# den aktiven Config-Dir trifft statt blind nach ~/.claude zu schreiben.
+CLAUDE_HOME="${HOME_ARG:-${CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}}"
 SKILLS_DIR="$CLAUDE_HOME/skills"
 AGENTS_DIR="$CLAUDE_HOME/agents"
 CC_SETUP_DIR="$SKILLS_DIR/cc-setup"   # SKILL.md + scripts/ + hooks/

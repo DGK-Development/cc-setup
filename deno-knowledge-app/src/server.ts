@@ -72,6 +72,7 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
           open_tasks: 0,
           cost_7d: 0,
           milestones: [],
+          looseTasks: [],
           tn: 0,
         }));
       // No (valid) project selected → cross-project Überblick view (global + sidebar).

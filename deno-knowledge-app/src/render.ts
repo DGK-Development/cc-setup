@@ -352,6 +352,16 @@ const KANBAN_CSS = `
 .kn-card-id{ font-size:11px; color:oklch(0.83 0.11 215); font-weight:600; }
 .kn-card-t{ font-size:12.5px; margin-top:2px; line-height:1.35; }
 .kn-card-ms{ font-size:10.5px; color:var(--dim,#8a929c); margin-top:3px; }
+.kn-modal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center;
+  justify-content:center; z-index:1000; }
+.kn-modal-box{ background:var(--panel,#0b0d10); border:1px solid var(--line-2,#1c2229);
+  border-radius:10px; width:min(820px,92vw); max-height:86vh; display:flex; flex-direction:column; }
+.kn-modal-h{ display:flex; align-items:center; gap:10px; padding:11px 14px;
+  border-bottom:1px solid var(--line-2,#1c2229); font-size:13px; }
+.kn-modal-h b{ flex:1; color:oklch(0.83 0.11 215); }
+.kn-modal-x{ background:none; border:0; color:var(--dim,#8a929c); cursor:pointer; font-size:14px; }
+.kn-modal-body{ margin:0; padding:14px 16px; overflow:auto; white-space:pre-wrap; word-break:break-word;
+  font-size:12px; line-height:1.5; color:var(--fg,#d7dee5); }
 `;
 
 export async function renderPage(

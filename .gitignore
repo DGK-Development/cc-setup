@@ -9,3 +9,4 @@ __pycache__/
 *_LOCAL_*
 *_REMOTE_*
 *.orig
+.claude/worktrees/

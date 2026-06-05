@@ -315,24 +315,39 @@ export function buildData(
 
   // Cross-project milestones (dev backlog data) for the Überblick. Each project's
   // milestones become grouped list items: name + done/total + status.
-  const projForMs = (context.projects as Array<
-    { name: string; milestones?: Array<{ name: string; done: number; total: number }> }
-  >) ?? [];
-  const msItems = projForMs.flatMap((pr) =>
-    (pr.milestones ?? []).map((m) => ({
+  const projForMs = (context.projects as Array<{
+    name: string;
+    milestones?: Array<{ name: string; done: number; total: number }>;
+    looseTasks?: Array<{ id: string; title: string; status: string; file: string }>;
+  }>) ?? [];
+  // Grouped by PROJECT (done:false so browser.js does not collapse them into a
+  // "Done" bucket): each project's milestones (X/Y) + its tasks without a milestone.
+  const msItems = projForMs.flatMap((pr) => {
+    const ms = (pr.milestones ?? []).map((m) => ({
       name: m.name,
       title: `${m.done}/${m.total} Tasks`,
-      status: m.done === m.total ? "done" : "open",
+      status: m.done === m.total ? "done" : "in progress",
       group: pr.name,
-      milestone: m.name,
-      done: m.done === m.total,
-      desc: `${pr.name} · ${m.done}/${m.total} Tasks ${m.done === m.total ? "(fertig)" : "offen"}`,
-    }))
-  );
+      milestone: "Milestone",
+      done: false,
+      desc: `${pr.name} · Milestone · ${m.done}/${m.total} Tasks`,
+    }));
+    const loose = (pr.looseTasks ?? []).map((t) => ({
+      name: t.id,
+      title: t.title,
+      status: t.status,
+      group: pr.name,
+      milestone: "(ohne Milestone)",
+      done: false,
+      desc: `${pr.name} · ${t.id} (ohne Milestone)`,
+      file: t.file,
+    }));
+    return [...ms, ...loose];
+  });
 
   const coll = {
     milestones: {
-      title: "Milestones",
+      title: "Backlog projektweit",
       scope: "alle Projekte",
       type: "task",
       accent: "a",
@@ -429,7 +444,7 @@ export function buildData(
     ? [
       {
         g: "Überblick · alle Projekte",
-        items: [{ id: "milestones", label: "Milestones", dot: "a" }, ovItem],
+        items: [{ id: "milestones", label: "Backlog projektweit", dot: "a" }, ovItem],
       },
       globalGroup,
     ]

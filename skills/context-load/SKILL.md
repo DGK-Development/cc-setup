@@ -21,17 +21,20 @@ mehr automatisch injiziert** (nur on-demand, siehe Layer 1). Dieser Skill (beim
 ersten User-Prompt getriggert) ergaenzt den Header um Backlog-Sprint-Match, Wiki-
 und Repo-Semantik. Hook-Log (falls Repo `logs/`): `logs/hook-session-start.log`.
 
-## Flat-Install-Pfade
+## Skript-Pfade (Flat Install, Deploy-Zeit-Substitution)
 
-Die Skripte liegen flach unter `$HOME/.claude/skills/cc-setup/scripts/` (Flat
-Install, kein Plugin-Namespace). Die fruehere Plugin-Root-Variable ist im reinen
-Flat-Mode NICHT gesetzt — daher der absolute Pfad:
+Der Platzhalter im Bash-Block unten wird von `deploy.sh` beim Install durch den
+absoluten Flat-Pfad ersetzt (`$CLAUDE_HOME/skills/cc-setup` — `$CLAUDE_HOME` =
+`$CLAUDE_CONFIG_DIR` falls gesetzt, sonst `~/.claude`). Im laufenden Bash-Tool
+ist diese Variable selbst NICHT gesetzt; entscheidend ist die Substitution zur
+**Deploy-Zeit**. Die deployte SKILL.md enthaelt also bereits absolute Pfade —
+kein offenes `${...}` mehr (sonst lief der Deploy gegen den falschen Home):
 
 ```bash
-RESOLVE="$HOME/.claude/skills/cc-setup/scripts/context-resolve.py"
-QMD_ENSURE="$HOME/.claude/skills/cc-setup/scripts/qmd-ensure.sh"
-TIER="$HOME/.claude/skills/cc-setup/scripts/wiki-tier-extract.py"
-SPRINT="$HOME/.claude/skills/cc-setup/scripts/sprint_bridge.py"
+RESOLVE="${CLAUDE_PLUGIN_ROOT}/scripts/context-resolve.py"
+QMD_ENSURE="${CLAUDE_PLUGIN_ROOT}/scripts/qmd-ensure.sh"
+TIER="${CLAUDE_PLUGIN_ROOT}/scripts/wiki-tier-extract.py"
+SPRINT="${CLAUDE_PLUGIN_ROOT}/scripts/sprint_bridge.py"
 ```
 
 Vault-Aufloesung (erste nicht-leere): `$OBSIDIAN_VAULT_PATH` → `$TASKNOTES_VAULT`
@@ -259,5 +262,5 @@ Nightly Re-Index per cron/systemd (statt macOS launchd) — ruft
 Manueller Refresh:
 
 ```bash
-redactor wrap -- bash "$HOME/.claude/skills/cc-setup/scripts/qmd-ensure.sh" --all
+redactor wrap -- bash "${CLAUDE_PLUGIN_ROOT}/scripts/qmd-ensure.sh" --all
 ```

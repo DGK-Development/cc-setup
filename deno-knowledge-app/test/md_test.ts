@@ -33,6 +33,16 @@ Deno.test("frontmatterField returns '' without a leading block or field", () => 
   assertEquals(frontmatterField("---\nfoo: bar\n---\n", "missing"), "");
 });
 
+Deno.test("frontmatterField reads a folded block scalar (title: >-)", () => {
+  const md =
+    "---\nid: x\ntitle: >-\n  Externe Stop-Sub-Hooks vendoren\n  oder sauber degradieren\nstatus: To Do\n---\n# Body\n";
+  assertEquals(
+    frontmatterField(md, "title"),
+    "Externe Stop-Sub-Hooks vendoren oder sauber degradieren",
+  );
+  assertEquals(frontmatterField(md, "status"), "To Do");
+});
+
 Deno.test("fmtMtime returns '' for falsy input and a formatted stamp otherwise", () => {
   assertEquals(fmtMtime(0), "");
   assertEquals(fmtMtime(null), "");

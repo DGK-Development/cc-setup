@@ -5,7 +5,9 @@ import { join } from "@std/path";
 const sample: Aggregate = {
   generated_at: 1_000_000,
   global: { available: true },
-  projects: [{ name: "x", path: "/x", open_tasks: 3, cost_7d: 0.5, milestones: [], tn: 0 }],
+  projects: [
+    { name: "x", path: "/x", open_tasks: 3, cost_7d: 0.5, milestones: [], looseTasks: [], tn: 0 },
+  ],
 };
 
 Deno.test("isFresh respects the TTL window", () => {

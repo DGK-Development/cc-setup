@@ -183,7 +183,7 @@
     var head = el(
       '<div class="kn-board-head"><b>' + esc(c.title) + '</b>' +
         '<span class="lc">' + c.items.length + "</span>" +
-        '<span class="bh-hint">Drag eine Karte in eine andere Spalte → Status</span></div>',
+        '<span class="bh-hint">Drag → Status ändern · Doppelklick → Detail</span></div>',
     );
     detail.appendChild(head);
     var board = el('<div class="kn-board"></div>');
@@ -211,6 +211,7 @@
           card.classList.add("dragging");
         });
         card.addEventListener("dragend", function () { card.classList.remove("dragging"); });
+        card.addEventListener("dblclick", function () { openTaskDetail(it); });
         body.appendChild(card);
       });
       col.addEventListener("dragover", function (e) { e.preventDefault(); col.classList.add("dragover"); });
@@ -245,6 +246,33 @@
         }
       })
       .catch(function () { window.alert("Status-Wechsel fehlgeschlagen (Netzwerk)"); });
+  }
+
+  function openTaskDetail(it) {
+    if (!it || !it.file) return;
+    fetch("/read?" + qs({ kind: "taskfile", name: it.file, project: ACTIVE }))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var body = (d && d.ok) ? d.content : ("Konnte Task nicht laden: " + ((d && d.error) || "?"));
+        showModal(it.name + (it.title ? " — " + it.title : ""), body);
+      })
+      .catch(function () { showModal(String(it.name), "Laden fehlgeschlagen (Netzwerk)"); });
+  }
+
+  function showModal(title, content) {
+    var prev = document.getElementById("kn-modal");
+    if (prev) prev.remove();
+    var ov = el(
+      '<div class="kn-modal" id="kn-modal"><div class="kn-modal-box">' +
+        '<div class="kn-modal-h"><b></b>' +
+        '<button class="kn-modal-x" type="button" aria-label="schliessen">✕</button></div>' +
+        '<pre class="kn-modal-body"></pre></div></div>',
+    );
+    ov.querySelector("b").textContent = title;
+    ov.querySelector(".kn-modal-body").textContent = content;
+    ov.addEventListener("click", function (e) { if (e.target === ov) ov.remove(); });
+    ov.querySelector(".kn-modal-x").addEventListener("click", function () { ov.remove(); });
+    document.body.appendChild(ov);
   }
 
   /* ---------- list (col 2) ---------- */
