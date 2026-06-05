@@ -23,7 +23,7 @@ export function cacheFile(): string {
 
 export function ttlMs(): number {
   const v = Number(Deno.env.get("CC_KNOWLEDGE_TTL_MS"));
-  return Number.isFinite(v) && v > 0 ? v : 5 * 60 * 1000;
+  return Number.isFinite(v) && v > 0 ? v : 15 * 60 * 1000;
 }
 
 /** Pure freshness predicate (testable without IO). */
@@ -61,31 +61,62 @@ export async function computeAggregate(
 }
 
 let current: Aggregate | null = null;
+let refreshing: Promise<void> | null = null;
+let started = false; // true once a real server primed the cache (not in tests)
 
-/** Latest aggregate (in-memory, kept fresh by the background timer). */
+/** Latest aggregate (in-memory). */
 export function getAggregate(): Aggregate | null {
   return current;
 }
 
+/** True while a refresh (and its session_analyze subprocesses) is in flight. */
+export function isRefreshing(): boolean {
+  return refreshing !== null;
+}
+
 /**
- * Prime the cache (from a fresh file, else compute) and start periodic refresh.
- * The timer is unref'd so it never keeps the process alive on its own.
+ * Single-flight refresh: at most ONE aggregate computation runs at a time across
+ * the whole process. Concurrent callers (boot prime + per-request lazy trigger)
+ * all await the SAME in-flight run instead of starting their own. Because
+ * collectSidebar runs session_analyze.py sequentially within a run, this is what
+ * guarantees **at most one Python subprocess at a time** — no overlapping batches.
  */
-export async function startCache(activeRepo: string, home: string): Promise<void> {
-  const ttl = ttlMs();
-  const fromFile = await readCacheFile();
-  if (isFresh(fromFile, ttl, Date.now())) {
-    current = fromFile;
-  } else {
-    current = await computeAggregate(activeRepo, home, Date.now());
-    await writeCacheFile(current);
-  }
-  const timer = setInterval(async () => {
+export function refreshAggregate(activeRepo: string, home: string): Promise<void> {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
     try {
       const next = await computeAggregate(activeRepo, home, Date.now());
       current = next;
       await writeCacheFile(next);
     } catch { /* keep last good aggregate */ }
-  }, ttl);
-  Deno.unrefTimer(timer);
+  })().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+/**
+ * Lazy trigger for request handlers: kick off a refresh ONLY if the cache is
+ * stale/missing AND none is already running. Non-blocking, fire-and-forget.
+ */
+export function ensureFresh(activeRepo: string, home: string): void {
+  if (!started) return; // never trigger heavy scans from a bare createHandler (tests)
+  if (refreshing) return;
+  if (isFresh(current, ttlMs(), Date.now())) return;
+  refreshAggregate(activeRepo, home);
+}
+
+/**
+ * Prime once on boot: load a fresh cache file if present (no Python spawned),
+ * otherwise compute one aggregate (single-flight). NO background timer — staleness
+ * is handled lazily via ensureFresh() on request, so nothing churns while idle.
+ */
+export async function startCache(activeRepo: string, home: string): Promise<void> {
+  started = true;
+  const fromFile = await readCacheFile();
+  if (isFresh(fromFile, ttlMs(), Date.now())) {
+    current = fromFile;
+    return;
+  }
+  await refreshAggregate(activeRepo, home);
 }

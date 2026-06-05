@@ -2,7 +2,7 @@ import { serveDir } from "@std/http/file-server";
 import { readDoc, renderPage, resultPage } from "./render.ts";
 import { buildContext, discoverProjects, repoRoot, resolveProjectCwd } from "./context.ts";
 import { gitCommit, gitDelete, gitDiff, gitMerge, gitPush } from "./collectors/index.ts";
-import { getAggregate } from "./cache.ts";
+import { ensureFresh, getAggregate } from "./cache.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 
@@ -52,8 +52,11 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
     // GET /
     if (req.method === "GET" && pathname === "/") {
       const project = url.searchParams.get("project") ?? "";
-      // Projects + global come from the cached aggregate (cheap, refreshed in the
-      // background). Fallback (e.g. cache not primed) discovers without stats.
+      // Lazy, single-flight refresh: only fires if the cache is stale AND no
+      // refresh is already running — so never more than one session_analyze batch.
+      ensureFresh(opts.cwd, claudeHome);
+      // Projects + global come from the cached aggregate. Fallback (cache not yet
+      // primed) discovers without stats.
       const agg = getAggregate();
       const sidebar = agg?.projects ??
         (await getProjects()).map((p) => ({ ...p, open_tasks: 0, cost_7d: 0 }));
