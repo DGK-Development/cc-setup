@@ -1,7 +1,14 @@
 import { serveDir } from "@std/http/file-server";
 import { readDoc, renderPage, resultPage } from "./render.ts";
 import { buildContext, discoverProjects, repoRoot, resolveProjectCwd } from "./context.ts";
-import { gitCommit, gitDelete, gitDiff, gitMerge, gitPush } from "./collectors/index.ts";
+import {
+  gitCommit,
+  gitDelete,
+  gitDiff,
+  gitMerge,
+  gitPush,
+  setTaskStatus,
+} from "./collectors/index.ts";
 import { ensureFresh, getAggregate } from "./cache.ts";
 import { fmtMtime } from "./md.ts";
 
@@ -130,6 +137,16 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
       const project = String(form.get("project") ?? "");
       const target = await getTarget(project);
       const action = pathname.slice("/action/".length);
+
+      // Kanban drag-drop: change a task's status, return JSON (not the HTML page).
+      if (action === "task-status") {
+        const result = await setTaskStatus(
+          target,
+          String(form.get("id") ?? ""),
+          String(form.get("status") ?? ""),
+        );
+        return Response.json(result);
+      }
 
       let result: Record<string, unknown>;
       switch (action) {

@@ -36,3 +36,7 @@
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-05T20:07:18+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-05T20:07:39+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-05T20:42:04+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-05T22:28:35+02:00"}
+{"command":"uv run --script /Users/niclasedge/claude niclasedge/plugins/cache/niclasedge-pkm/project-context/0.1...","count":1,"mode":"wrap","rule":"keyword","sample":"dammers","source":"wrap:uv","ts":"2026-06-05T22:30:41+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-05T22:31:21+02:00"}
+{"command":"-","count":0,"mode":"json","rule":"json_leaves","sample":"leaves=0 list_truncated=0","source":"/Users/niclasedge/claude niclasedge/plugins/config.json","ts":"2026-06-05T22:34:01+02:00"}

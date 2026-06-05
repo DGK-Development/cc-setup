@@ -2,10 +2,37 @@
 // Reads backlog/tasks/*.md + backlog/completed/*.md directly (read-only).
 // Groups by milestone, counts done/total, collects in-progress tasks.
 
-import { readText } from "../shared.ts";
+import { readText, run } from "../shared.ts";
 import { frontmatterField } from "../md.ts";
 import { join } from "@std/path";
 import { repoRoot } from "./project.ts";
+
+/** Backlog Kanban columns / allowed statuses. */
+export const TASK_STATUSES = ["To Do", "In Progress", "Done"];
+const TASK_ID_RE = /^[A-Za-z]+-\d+(?:\.\d+)*$/;
+
+/**
+ * Move a backlog task to a new status via `backlog task edit -s` (dev-data
+ * mutation). Validates id + status to avoid injection. Used by the Kanban board.
+ */
+export async function setTaskStatus(
+  cwd: string,
+  id: string,
+  status: string,
+): Promise<Record<string, unknown>> {
+  if (!TASK_ID_RE.test(id)) return { ok: false, error: "ungültige Task-ID" };
+  if (!TASK_STATUSES.includes(status)) return { ok: false, error: "ungültiger Status" };
+  const repo = await repoRoot(cwd);
+  const out = await run(["backlog", "task", "edit", id, "-s", status], {
+    cwd: repo,
+    timeoutMs: 30_000,
+  });
+  return out === null ? { ok: false, id, status, error: "backlog edit fehlgeschlagen" } : {
+    ok: true,
+    id,
+    status,
+  };
+}
 
 interface TaskRecord {
   id: string;

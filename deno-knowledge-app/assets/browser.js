@@ -151,6 +151,15 @@
     [].forEach.call(nav.querySelectorAll(".nav-i"), function (n) {
       n.classList.toggle("is-active", n.dataset.id === id);
     });
+    mp.classList.remove("is-board");
+    if (id === "backlog") {
+      mp.classList.remove("is-overview");
+      mp.classList.add("is-board");
+      state.coll = "backlog";
+      state.idx = 0;
+      renderBoard();
+      return;
+    }
     if (id === "git") { mp.classList.remove("is-overview"); state.coll = null; renderGit(); return; }
     if (SPECIAL[id]) {
       mp.classList.add("is-overview");
@@ -161,6 +170,81 @@
     mp.classList.remove("is-overview");
     state.coll = id; state.idx = 0;
     renderList(""); selectItem(0);
+  }
+
+  /* ---------- backlog: kanban board (drag-drop → status persist) ---------- */
+  var BOARD_STATUSES = ["To Do", "In Progress", "Done"];
+
+  function renderBoard() {
+    var c = COLL["backlog"];
+    list.innerHTML = "";
+    detail.innerHTML = "";
+    if (!c) return;
+    var head = el(
+      '<div class="kn-board-head"><b>' + esc(c.title) + '</b>' +
+        '<span class="lc">' + c.items.length + "</span>" +
+        '<span class="bh-hint">Drag eine Karte in eine andere Spalte → Status</span></div>',
+    );
+    detail.appendChild(head);
+    var board = el('<div class="kn-board"></div>');
+    BOARD_STATUSES.forEach(function (st) {
+      var key = st.toLowerCase();
+      var items = c.items.filter(function (it) { return String(it.status || "").toLowerCase() === key; });
+      var col = el(
+        '<div class="kn-col" data-status="' + esc(st) + '">' +
+          '<div class="kn-col-h">' + esc(st) + ' <span class="kn-col-c">' + items.length + "</span></div>" +
+          '<div class="kn-col-body"></div></div>',
+      );
+      var body = col.querySelector(".kn-col-body");
+      items.forEach(function (it) {
+        var card = el(
+          '<div class="kn-card" draggable="true" data-id="' + esc(it.name) + '">' +
+            '<div class="kn-card-id">' + esc(it.name) + "</div>" +
+            '<div class="kn-card-t">' + esc(it.title || "") + "</div>" +
+            (it.milestone && it.milestone !== "—"
+              ? '<div class="kn-card-ms">' + esc(it.milestone) + "</div>"
+              : "") +
+          "</div>",
+        );
+        card.addEventListener("dragstart", function (e) {
+          e.dataTransfer.setData("text/plain", String(it.name));
+          card.classList.add("dragging");
+        });
+        card.addEventListener("dragend", function () { card.classList.remove("dragging"); });
+        body.appendChild(card);
+      });
+      col.addEventListener("dragover", function (e) { e.preventDefault(); col.classList.add("dragover"); });
+      col.addEventListener("dragleave", function () { col.classList.remove("dragover"); });
+      col.addEventListener("drop", function (e) {
+        e.preventDefault();
+        col.classList.remove("dragover");
+        var id = e.dataTransfer.getData("text/plain");
+        if (id) moveTask(id, st);
+      });
+      board.appendChild(col);
+    });
+    detail.appendChild(board);
+  }
+
+  function moveTask(id, status) {
+    var fd = new FormData();
+    fd.append("id", id);
+    fd.append("status", status);
+    fd.append("project", ACTIVE || "");
+    fetch("/action/task-status", { method: "POST", body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.ok) {
+          var items = (COLL["backlog"] || {}).items || [];
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].name === id) items[i].status = status.toLowerCase();
+          }
+          renderBoard();
+        } else {
+          window.alert("Status-Wechsel fehlgeschlagen: " + ((d && d.error) || "?"));
+        }
+      })
+      .catch(function () { window.alert("Status-Wechsel fehlgeschlagen (Netzwerk)"); });
   }
 
   /* ---------- list (col 2) ---------- */

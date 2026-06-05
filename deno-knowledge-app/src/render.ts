@@ -329,6 +329,31 @@ const SIDEBAR_CSS = `
   .kn-proj-ov{ border-bottom-color:#ccd0da; }
 }`;
 
+const KANBAN_CSS = `
+.mp.is-board{ grid-template-columns:214px 1fr; }
+.mp.is-board .mp-list{ display:none; }
+.kn-board-head{ padding:11px 16px; border-bottom:1px solid var(--line,#1c2229); display:flex;
+  align-items:baseline; gap:10px; background:var(--panel,#0b0d10); font-size:13px; }
+.kn-board-head .lc{ color:var(--faint,#6c7682); }
+.kn-board-head .bh-hint{ margin-left:auto; color:var(--dim,#8a929c); font-size:10.5px; }
+.kn-board{ display:flex; gap:12px; padding:14px 16px; align-items:flex-start; overflow:auto; height:100%; }
+.kn-col{ flex:1 1 0; min-width:220px; background:var(--bg-grid,#0a0b0d);
+  border:1px solid var(--line-2,#1c2229); border-radius:9px; display:flex; flex-direction:column;
+  max-height:100%; }
+.kn-col-h{ padding:9px 12px; font-size:12px; font-weight:700;
+  border-bottom:1px solid var(--line-2,#1c2229); display:flex; gap:8px; }
+.kn-col-c{ color:var(--faint,#6c7682); font-weight:500; }
+.kn-col-body{ padding:8px; display:flex; flex-direction:column; gap:8px; min-height:60px; overflow:auto; }
+.kn-col.dragover{ outline:2px dashed oklch(0.83 0.11 215); outline-offset:-3px; }
+.kn-card{ background:var(--panel,#0b0d10); border:1px solid var(--line-2,#1c2229); border-radius:7px;
+  padding:8px 10px; cursor:grab; }
+.kn-card:active{ cursor:grabbing; }
+.kn-card.dragging{ opacity:.4; }
+.kn-card-id{ font-size:11px; color:oklch(0.83 0.11 215); font-weight:600; }
+.kn-card-t{ font-size:12.5px; margin-top:2px; line-height:1.35; }
+.kn-card-ms{ font-size:10.5px; color:var(--dim,#8a929c); margin-top:3px; }
+`;
+
 export async function renderPage(
   opts: RenderOptions & {
     context?: Record<string, unknown>;
@@ -353,7 +378,8 @@ export async function renderPage(
   const browserCss = await readText(join(assetsDir, "browser.css")) ?? "";
   const browserJs = await readText(join(assetsDir, "browser.js")) ?? "";
 
-  const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS + "\n" + SIDEBAR_CSS;
+  const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS + "\n" + SIDEBAR_CSS + "\n" +
+    KANBAN_CSS;
   const dataJson = safeScriptJson(data);
 
   // Left sidebar: a top "Überblick" entry (cross-project + global) above the
