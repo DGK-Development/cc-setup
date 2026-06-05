@@ -330,11 +330,7 @@ export async function renderPage(
 
   // Read static assets via /assets/ URLs (they are served by serveDir)
   // but for the inline <style> embed we read them from the filesystem.
-  const assetsDir = join(
-    new URL("../..", import.meta.url).pathname,
-    "scripts",
-    "knowledge_assets",
-  );
+  const assetsDir = join(new URL("..", import.meta.url).pathname, "assets");
   const dashCss = await readText(join(assetsDir, "dash.css")) ?? "";
   const browserCss = await readText(join(assetsDir, "browser.css")) ?? "";
   const browserJs = await readText(join(assetsDir, "browser.js")) ?? "";

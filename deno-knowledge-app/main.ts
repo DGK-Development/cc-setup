@@ -3,9 +3,9 @@ import { resolve } from "@std/path";
 import { createHandler } from "./src/server.ts";
 import { startCache } from "./src/cache.ts";
 
-/** Static assets are reused from the existing python app (single source). */
+/** Static assets (dash.css/browser.css/browser.js) live with the Deno app. */
 function assetsDir(): string {
-  return resolve(import.meta.dirname!, "..", "scripts", "knowledge_assets");
+  return resolve(import.meta.dirname!, "assets");
 }
 
 if (import.meta.main) {

@@ -40,15 +40,20 @@ bundle out="dist/cc-setup":
 install-vault vault="$HOME/GITHUB/ObsidianPKM":
     bash scripts/deploy.sh --vault "{{vault}}"
 
-# Single-Pane-Status-Dashboard (read-only) auf 127.0.0.1 starten + Browser oeffnen
+# Single-Pane-Status-Dashboard (Deno) auf 127.0.0.1 starten + Browser oeffnen.
+# Stoppt ZUERST alle laufenden Instanzen (kein Mehrfach-Server → keine RAM-Last).
 overview port="8765":
-    uv run --script scripts/knowledge.py --cwd . --port {{port}}
+    #!/usr/bin/env bash
+    pkill -f "deno task" 2>/dev/null || true
+    pkill -f "deno run.*main\.ts.*--cwd" 2>/dev/null || true
+    sleep 1
+    echo "knowledge (deno) → http://127.0.0.1:{{port}}/"
+    cd deno-knowledge-app && exec deno task start --cwd .. --port {{port}}
 
-# Deno-Dashboard mit Live-Reload (--watch). Stoppt ZUERST alle laufenden
-# Dashboard-Instanzen (kein Mehrfach-Server → keine RAM-Last), dann Neustart.
+# Wie overview, aber mit Live-Reload (--watch) + ohne Browser-Autostart (Dev).
 deno port="8765":
     #!/usr/bin/env bash
-    pkill -f "deno task dev" 2>/dev/null || true
+    pkill -f "deno task" 2>/dev/null || true
     pkill -f "deno run.*main\.ts.*--cwd" 2>/dev/null || true
     sleep 1
     echo "knowledge (deno) → http://127.0.0.1:{{port}}/  · Live-Reload via --watch"
@@ -58,9 +63,8 @@ deno port="8765":
 deno-test:
     cd deno-knowledge-app && deno task test
 
-# Alle Test-Suites (repo-lokal in scripts/): sprint-bridge + session-analyse + waste + context-resolve + knowledge-dashboard.
-# knowledge.py braucht fastapi+httpx fuer den Route-Smoke-Test; das laeuft als python -m pytest in einer
-# Ad-hoc-uv-Umgebung (uv run --with pytest <…> pytest zieht pytest als isoliertes Tool ohne die --with-Extras).
+# Alle Test-Suites: Python-Helper (sprint-bridge + session-analyse + waste + context-resolve)
+# plus die Deno-App (deno-knowledge-app). knowledge.py-Dashboard ist nach Deno migriert (CCS-018).
 test:
     cd scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py test_session_analyze.py test_session_waste.py test_context_resolve.py -v
-    cd scripts && uv run --isolated --no-project --with pytest --with fastapi --with httpx --with python-multipart python -m pytest test_knowledge.py -v
+    cd deno-knowledge-app && deno task test
