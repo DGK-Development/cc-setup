@@ -5,7 +5,7 @@
 // (computed per request in server.ts), never cached.
 
 import { dirname, join } from "@std/path";
-import { collectGlobal } from "./collectors/index.ts";
+import { collectGlobal, collectTn } from "./collectors/index.ts";
 import { collectSidebar, type SidebarProject } from "./collectors/sidebar.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
@@ -14,6 +14,20 @@ export interface Aggregate {
   generated_at: number; // epoch ms
   global: Record<string, unknown>;
   projects: SidebarProject[];
+  tn: { next: number; blocked: number };
+}
+
+/** tn next/blocked counts for the cross-project statusline (1 light tn-CLI call). */
+async function tnSummary(cwd: string): Promise<{ next: number; blocked: number }> {
+  try {
+    const t = await collectTn(cwd);
+    return {
+      next: ((t.next as unknown[]) ?? []).length,
+      blocked: ((t.blocked as unknown[]) ?? []).length,
+    };
+  } catch {
+    return { next: 0, blocked: 0 };
+  }
 }
 
 export function cacheFile(): string {
@@ -57,6 +71,7 @@ export async function computeAggregate(
     generated_at: now,
     global: await collectGlobal(home),
     projects: await collectSidebar(activeRepo),
+    tn: await tnSummary(activeRepo),
   };
 }
 

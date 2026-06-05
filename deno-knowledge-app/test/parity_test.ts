@@ -30,12 +30,12 @@ Deno.test("buildData coll has the knowledge.py section contract", () => {
   );
 });
 
-Deno.test("buildData nav groups mirror knowledge.py structure", () => {
-  const nav = buildData(EMPTY).nav as Array<{ g: string }>;
-  assertEquals(
-    nav.map((n) => n.g),
-    ["Überblick", "Global · alle Projekte", "Projekt", "Git", "Wissen", "Backlog", "Usage"],
-  );
+Deno.test("buildData nav groups depend on view (global only in overview)", () => {
+  const overview = (buildData(EMPTY, "overview").nav as Array<{ g: string }>).map((n) => n.g);
+  assertEquals(overview, ["Überblick · alle Projekte", "Global · alle Projekte"]);
+
+  const project = (buildData(EMPTY, "project").nav as Array<{ g: string }>).map((n) => n.g);
+  assertEquals(project, ["Übersicht", "Projekt", "Git", "Wissen", "Backlog", "Usage"]);
 });
 
 Deno.test("buildData top-level keys are stable", () => {

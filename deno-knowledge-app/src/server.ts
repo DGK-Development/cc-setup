@@ -3,6 +3,7 @@ import { readDoc, renderPage, resultPage } from "./render.ts";
 import { buildContext, discoverProjects, repoRoot, resolveProjectCwd } from "./context.ts";
 import { gitCommit, gitDelete, gitDiff, gitMerge, gitPush } from "./collectors/index.ts";
 import { ensureFresh, getAggregate } from "./cache.ts";
+import { fmtMtime } from "./md.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 
@@ -60,16 +61,27 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
       const agg = getAggregate();
       const sidebar = agg?.projects ??
         (await getProjects()).map((p) => ({ ...p, open_tasks: 0, cost_7d: 0 }));
-      const target = resolveProjectCwd(project, sidebar, opts.cwd);
-      const active = sidebar.some((p) => p.name === project)
-        ? project
-        : (await repoRoot(opts.cwd)).split("/").pop()!;
+      // No (valid) project selected → cross-project Überblick view (global + sidebar).
+      const selected = sidebar.some((p) => p.name === project) ? project : "";
+      const view = selected ? "project" as const : "overview" as const;
+      const target = resolveProjectCwd(selected, sidebar, opts.cwd);
+      const activeName = selected || (await repoRoot(opts.cwd)).split("/").pop()!;
       const context = await buildContext(target, claudeHome, {
         projects: sidebar,
-        active_project: active,
+        active_project: activeName,
         global: agg?.global,
+        skipProject: view === "overview",
       });
-      const html = await renderPage({ cwd: target, context, sidebar, active });
+      const html = await renderPage({
+        cwd: target,
+        context,
+        sidebar,
+        active: selected,
+        view,
+        tn: agg?.tn,
+        generatedAt: agg ? fmtMtime(agg.generated_at / 1000) : undefined,
+        loading: !agg,
+      });
       return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
 

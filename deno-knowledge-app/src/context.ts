@@ -52,6 +52,7 @@ export async function buildContext(
     projects?: Array<{ name: string; path: string }>;
     active_project?: string;
     global?: Record<string, unknown>;
+    skipProject?: boolean;
   },
 ): Promise<Record<string, unknown>> {
   const home = claudeHome ?? `${HOME}/.claude`;
@@ -59,6 +60,11 @@ export async function buildContext(
   const activeProject = opts?.active_project ?? "";
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+
+  // Overview view shows only global + cross-project → skip the per-project
+  // collectors (incl. collectTokens, which would spawn session_analyze.py).
+  const skip = opts?.skipProject === true;
+  const na = { available: false, reason: "overview" };
 
   return {
     generated_at: now,
@@ -69,12 +75,12 @@ export async function buildContext(
       // Global layer is identical for every project → reuse the cached copy when
       // provided, otherwise collect it live (e.g. tests, cache priming).
       global: opts?.global ?? await collectGlobal(home),
-      project: await collectProject(cwd),
-      git: await collectGit(cwd),
-      knowledge: await collectKnowledge(cwd),
-      backlog: await collectBacklog(cwd),
-      tn: await collectTn(cwd),
-      tokens: await collectTokens(cwd),
+      project: skip ? na : await collectProject(cwd),
+      git: skip ? na : await collectGit(cwd),
+      knowledge: skip ? na : await collectKnowledge(cwd),
+      backlog: skip ? na : await collectBacklog(cwd),
+      tn: skip ? na : await collectTn(cwd),
+      tokens: skip ? na : await collectTokens(cwd),
       cost: await collectCost(),
     },
   };
@@ -114,7 +120,10 @@ export function fmtCost(v: unknown): string {
 // build_data — maps collector cards into the browser DATA object
 // ---------------------------------------------------------------------------
 
-export function buildData(context: Record<string, unknown>): Record<string, unknown> {
+export function buildData(
+  context: Record<string, unknown>,
+  view: "overview" | "project" = "overview",
+): Record<string, unknown> {
   const cards = (context.cards ?? {}) as Record<string, Record<string, unknown>>;
 
   function av(key: string): Record<string, unknown> {
@@ -346,17 +355,20 @@ export function buildData(context: Record<string, unknown>): Record<string, unkn
     sessions: { title: "Sessions", scope: "usage", type: "session", accent: "m", items: sessions },
   };
 
-  const nav = [
-    { g: "Überblick", items: [{ id: "ov", label: "Übersicht", dot: "g" }] },
-    {
-      g: "Global · alle Projekte",
-      items: [
-        { id: "skills", label: "Skills", dot: "g", tok: fmtCompact(skillsTok) },
-        { id: "agents", label: "Agents", dot: "c", tok: fmtCompact(agentsTok) },
-        { id: "hooks", label: "Hooks", dot: "" },
-        { id: "gclaude", label: "CLAUDE.md", dot: "c", tok: fmtCompact(gdoc.tokens) },
-      ],
-    },
+  // Global (skills/agents/hooks/global CLAUDE.md) gilt fuer ALLE Projekte → lebt
+  // im Ueberblick (view "overview"), NICHT pro Projekt. Projektauswahl ("project")
+  // zeigt nur die projektzugehoerigen Gruppen.
+  const ovItem = { id: "ov", label: "Übersicht", dot: "g" };
+  const globalGroup = {
+    g: "Global · alle Projekte",
+    items: [
+      { id: "skills", label: "Skills", dot: "g", tok: fmtCompact(skillsTok) },
+      { id: "agents", label: "Agents", dot: "c", tok: fmtCompact(agentsTok) },
+      { id: "hooks", label: "Hooks", dot: "" },
+      { id: "gclaude", label: "CLAUDE.md", dot: "c", tok: fmtCompact(gdoc.tokens) },
+    ],
+  };
+  const projectGroups = [
     {
       g: "Projekt",
       items: [
@@ -389,6 +401,9 @@ export function buildData(context: Record<string, unknown>): Record<string, unkn
       ],
     },
   ];
+  const nav = view === "overview"
+    ? [{ g: "Überblick · alle Projekte", items: [ovItem] }, globalGroup]
+    : [{ g: "Übersicht", items: [ovItem] }, ...projectGroups];
 
   const branch = String(gitc.branch ?? p.branch ?? "?");
   const namedMs = (bl.milestones as Array<Record<string, unknown>> ?? [])

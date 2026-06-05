@@ -312,9 +312,19 @@ const SIDEBAR_CSS = `
 .kn-proj-s b{ color:#aab3bd; }
 .kn-title{ font-size:13px; font-weight:700; padding:0 6px; color:#aab3bd; }
 .kn-body .mp{ flex:1 1 auto; min-width:0; }
+.kn-status{ display:flex; flex-direction:column; gap:1px; padding:6px 14px; font-size:11.5px;
+  line-height:1.5; border-bottom:1px solid var(--line-2,#1c2229); color:#8a929c;
+  background:rgba(127,127,127,.04); }
+.kn-status b{ color:#d7dee5; }
+.kn-status .kn-status-2{ color:#6c7682; }
+.kn-status .kn-loading{ color:oklch(0.83 0.13 80); }
+.kn-proj-ov{ border-bottom:1px solid var(--line-2,#1c2229); margin-bottom:4px; padding-bottom:9px; }
+.kn-proj-ov .kn-proj-n{ color:oklch(0.83 0.11 215); }
 @media (prefers-color-scheme: light){
   .kn-projects{ border-right-color:#ccd0da; }
   .kn-proj-s{ color:#6c6f85; } .kn-proj-s b{ color:#4c4f69; } .kn-title{ color:#4c4f69; }
+  .kn-status{ border-bottom-color:#ccd0da; color:#6c6f85; } .kn-status b{ color:#4c4f69; }
+  .kn-proj-ov{ border-bottom-color:#ccd0da; }
 }`;
 
 export async function renderPage(
@@ -322,11 +332,16 @@ export async function renderPage(
     context?: Record<string, unknown>;
     sidebar?: Array<{ name: string; path: string; open_tasks: number; cost_7d: number }>;
     active?: string;
+    view?: "overview" | "project";
+    tn?: { next: number; blocked: number };
+    generatedAt?: string;
+    loading?: boolean;
   },
 ): Promise<string> {
   const ctx = opts.context ??
     { generated_at: "", cwd: opts.cwd, projects: [], active_project: "", cards: {} };
-  const data = buildData(ctx);
+  const view = opts.view ?? (opts.active ? "project" : "overview");
+  const data = buildData(ctx, view);
 
   // Read static assets via /assets/ URLs (they are served by serveDir)
   // but for the inline <style> embed we read them from the filesystem.
@@ -338,23 +353,44 @@ export async function renderPage(
   const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS + "\n" + SIDEBAR_CSS;
   const dataJson = safeScriptJson(data);
 
-  // Left project sidebar: name · open tasks · ≈7d cost (from the cached aggregate).
-  const active = opts.active ?? String(data.active_project ?? "");
+  // Left sidebar: a top "Überblick" entry (cross-project + global) above the
+  // project list. Project rows are active only in project view.
+  const active = view === "project" ? (opts.active ?? "") : "";
   const sb = opts.sidebar ?? [];
-  const sidebarHtml = sb.length
-    ? '<aside class="kn-projects" id="kn-projects"><div class="kn-proj-h">Projekte</div>' +
-      sb.map((p) => {
-        const cls = p.name === active ? " is-active" : "";
-        const q = encodeURIComponent(p.name);
-        return `<a class="kn-proj${cls}" href="/?project=${q}" title="${escape(p.path)}">` +
-          `<span class="kn-proj-n">${escape(p.name)}</span>` +
-          `<span class="kn-proj-s"><b>${p.open_tasks}</b> offen · ${
-            escape(fmtCost(p.cost_7d))
-          }</span>` +
-          "</a>";
-      }).join("") +
-      "</aside>"
-    : "";
+  const ovEntry =
+    `<a class="kn-proj kn-proj-ov${view === "overview" ? " is-active" : ""}" href="/">` +
+    `<span class="kn-proj-n">Überblick</span>` +
+    `<span class="kn-proj-s">alle Projekte · global</span></a>`;
+  const projRows = sb.map((p) => {
+    const cls = p.name === active ? " is-active" : "";
+    const q = encodeURIComponent(p.name);
+    return `<a class="kn-proj${cls}" href="/?project=${q}" title="${escape(p.path)}">` +
+      `<span class="kn-proj-n">${escape(p.name)}</span>` +
+      `<span class="kn-proj-s"><b>${p.open_tasks}</b> offen · ${
+        escape(fmtCost(p.cost_7d))
+      }</span>` +
+      "</a>";
+  }).join("");
+  const sidebarHtml = '<aside class="kn-projects" id="kn-projects">' + ovEntry +
+    '<div class="kn-proj-h">Projekte</div>' + projRows + "</aside>";
+
+  // Cross-project statusline (≤2 Zeilen), gespeist aus dem Cache-Aggregat.
+  const sumOpen = sb.reduce((s, p) => s + p.open_tasks, 0);
+  const sumCost = sb.reduce((s, p) => s + p.cost_7d, 0);
+  const tn = opts.tn ?? { next: 0, blocked: 0 };
+  const stand = escape(
+    opts.generatedAt ?? String((data.meta as Record<string, unknown>)?.generated_at ?? ""),
+  );
+  const loadingMark = opts.loading ? ' · <span class="kn-loading">Daten laden…</span>' : "";
+  const statusline = '<div class="kn-status">' +
+    `<span><b>${sb.length}</b> Projekte · <b>${sumOpen}</b> offene Backlog-Tasks · ≈${
+      escape(fmtCost(sumCost))
+    } / 7 Tage</span>` +
+    `<span class="kn-status-2">tn: <b>${tn.next}</b> next · <b>${tn.blocked}</b> blocked · Stand ${stand}${loadingMark}</span>` +
+    "</div>";
+  const titleLabel = view === "overview"
+    ? "Überblick · alle Projekte"
+    : ("Projekt: " + escape(active));
 
   // Theme pre-paint init
   const themeInit = "<script>(function(){try{var t=localStorage.getItem('kn-theme');" +
@@ -369,9 +405,8 @@ export async function renderPage(
     themeInit +
     `<style>${css}</style></head><body>` +
     '<div class="kn-shell">' +
-    `<div class="kn-tabs" id="kn-tabs"><span class="kn-title">knowledge · ${
-      escape(active)
-    }</span>` +
+    statusline +
+    `<div class="kn-tabs" id="kn-tabs"><span class="kn-title">knowledge · ${titleLabel}</span>` +
     '<span class="kn-tabs-sp"></span>' +
     '<button class="kn-theme" id="kn-theme-toggle" type="button"' +
     ' aria-label="Theme wechseln">☀</button>' +
