@@ -69,7 +69,7 @@ export function getAggregate(): Aggregate | null {
   return current;
 }
 
-/** True while a refresh (and its session_analyze subprocesses) is in flight. */
+/** True while an aggregate refresh (the cross-project scan) is in flight. */
 export function isRefreshing(): boolean {
   return refreshing !== null;
 }
@@ -77,9 +77,10 @@ export function isRefreshing(): boolean {
 /**
  * Single-flight refresh: at most ONE aggregate computation runs at a time across
  * the whole process. Concurrent callers (boot prime + per-request lazy trigger)
- * all await the SAME in-flight run instead of starting their own. Because
- * collectSidebar runs session_analyze.py sequentially within a run, this is what
- * guarantees **at most one Python subprocess at a time** — no overlapping batches.
+ * all await the SAME in-flight run instead of starting their own — this prevents
+ * overlapping cross-project scans (the original cause of the RAM blow-up, when
+ * overlapping batches each spawned session_analyze.py). The sidebar now reads
+ * session JSONLs natively (sessions_native.ts), so this path spawns no Python.
  */
 export function refreshAggregate(activeRepo: string, home: string): Promise<void> {
   if (refreshing) return refreshing;

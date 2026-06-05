@@ -5,7 +5,7 @@
 import { join } from "@std/path";
 import { frontmatterField } from "../md.ts";
 import { readText } from "../shared.ts";
-import { sevenDayCost } from "./tokens.ts";
+import { sevenDayCostNative } from "./sessions_native.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 
@@ -74,7 +74,7 @@ export async function collectSidebar(activeRepo: string): Promise<SidebarProject
     const open_tasks = await countOpenTasks(p.path);
     let cost_7d = 0;
     try {
-      cost_7d = await sevenDayCost(p.path);
+      cost_7d = await sevenDayCostNative(p.path);
     } catch { /* sessions unavailable → 0 */ }
     out.push({ ...p, open_tasks, cost_7d });
   }

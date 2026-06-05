@@ -186,24 +186,3 @@ export async function collectTokens(cwd: string): Promise<Record<string, unknown
     return { available: false, reason: `collect_tokens failed: ${exc}` };
   }
 }
-
-/** Sum of estimated session cost (≈ USD) for sessions in the last 7 days. */
-export async function sevenDayCost(cwd: string): Promise<number> {
-  const agg = await sessionAnalyzeJson(cwd);
-  const perSession = agg?.token_stats?.per_session ?? [];
-  if (!perSession.length) return 0;
-  const mtimes = await sessionMtimes(cwd);
-  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-  let cost = 0;
-  for (const s of perSession) {
-    const mt = mtimes.get(String(s.session_id ?? "")) ?? null;
-    if (mt === null || mt < cutoff) continue;
-    cost += estCost(
-      Number(s.total_input_tokens ?? 0),
-      Number(s.total_output_tokens ?? 0),
-      Number(s.total_cache_read_tokens ?? 0),
-      Number(s.total_cache_creation_tokens ?? 0),
-    );
-  }
-  return Math.round(cost * 100) / 100;
-}
