@@ -6,11 +6,37 @@
 .mp{
   display:grid;
   grid-template-columns:214px 280px 1fr;
-  height:min(70vh,640px);
-  min-height:460px;
+  height:100vh;
+  min-height:0;
 }
 .mp.is-overview{ grid-template-columns:214px 1fr; }
 .mp.is-overview .mp-list{ display:none; }
+
+/* ---- slim project tab-bar + theme toggle (shell wraps nav/list/detail) ---- */
+.kn-shell{ height:100dvh; display:flex; flex-direction:column; min-height:0; }
+.kn-shell > .mp{ flex:1; height:100%; min-height:0; }
+.kn-tabs{
+  flex:none; display:flex; align-items:stretch; gap:1px;
+  height:30px; padding:0 8px; overflow-x:auto; overflow-y:hidden;
+  background:var(--bg-grid); border-bottom:1px solid var(--line-2);
+  scrollbar-width:thin;
+}
+.kn-tabs::-webkit-scrollbar{ height:6px; }
+.kn-tabs::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:3px; }
+.kn-tab{
+  display:inline-flex; align-items:center; padding:0 11px; white-space:nowrap;
+  font-size:11.5px; color:var(--dim); border-bottom:2px solid transparent;
+  cursor:pointer; user-select:none; transition:color .1s, background .1s, border-color .1s;
+}
+.kn-tab:hover{ color:var(--fg-2); background:var(--panel-2); }
+.kn-tab.is-active{ color:var(--fg); border-bottom-color:var(--mag); font-weight:600; }
+.kn-tabs-sp{ flex:1; min-width:8px; }
+.kn-theme{
+  flex:none; align-self:center; font:inherit; font-size:13px; line-height:1;
+  background:var(--panel-3); color:var(--fg-2); border:1px solid var(--line-2);
+  border-radius:6px; padding:3px 9px; cursor:pointer; margin-left:6px;
+}
+.kn-theme:hover{ color:var(--fg); border-color:var(--line-3); }
 
 .mp-nav, .mp-list, .mp-detail{ overflow:auto; min-width:0; }
 .mp-nav{ border-right:1px solid var(--line-2); background:var(--bg-grid); padding:8px 8px 16px; }
@@ -66,7 +92,7 @@
 .li:hover{ background:var(--panel-2); }
 .li.is-active{ background:var(--panel-3); box-shadow:inset 2px 0 0 var(--cyan); }
 .li .li-n{ font-size:12.5px; color:var(--fg); font-weight:500; word-break:break-word; }
-.li.is-active .li-n{ color:#fff; }
+.li.is-active .li-n{ color:var(--fg-strong); }
 .li .li-s{ font-size:10px; color:var(--dim); margin-top:2px; }
 .li .li-ix{ color:var(--faint); font-size:11px; font-variant-numeric:tabular-nums; }
 .li .li-dot{ margin-top:5px; }
@@ -111,7 +137,7 @@
 
 /* responsive */
 @media (max-width:880px){
-  .mp, .mp.is-overview{ grid-template-columns:1fr; height:auto; }
+  .mp, .mp.is-overview{ grid-template-columns:1fr; height:auto; min-height:100vh; }
   .mp-nav{ border-right:0; border-bottom:1px solid var(--line-2); display:flex; flex-wrap:wrap; gap:4px; padding:8px; }
   .mp-nav .nav-g{ width:100%; padding:6px 8px 2px; }
   .mp-nav .nav-i{ width:auto; }

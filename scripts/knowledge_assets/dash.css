@@ -1,34 +1,37 @@
 /* ============================================================
-   knowledge dashboard — terminal design system (dark only)
-   plain CSS, no JS. Interactions via <details> and :checked.
+   knowledge dashboard — terminal design system (Catppuccin)
+   plain CSS, no JS. Light/Dark via :root[data-theme] + system pref.
+   Dark = Catppuccin Mocha (default) · Light = Catppuccin Latte.
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
 
 :root{
-  /* surfaces */
-  --bg:        #0a0b0d;
-  --bg-grid:   #0d0f12;
-  --panel:     #101317;
-  --panel-2:   #14181d;
-  --panel-3:   #181d23;
-  --inset:     #0b0d10;
-  --line:      #1c2229;
-  --line-2:    #283038;
-  --line-3:    #343f49;
+  /* ---- Catppuccin Mocha (dark) — default ---- */
+  /* surfaces (deepest -> lightest) */
+  --bg:        #181825;  /* mantle */
+  --bg-grid:   #1e1e2e;  /* base */
+  --panel:     #1e1e2e;  /* base */
+  --panel-2:   #262638;
+  --panel-3:   #313244;  /* surface0 */
+  --inset:     #11111b;  /* crust */
+  --line:      #313244;  /* surface0 */
+  --line-2:    #45475a;  /* surface1 */
+  --line-3:    #585b70;  /* surface2 */
 
   /* ink */
-  --fg:    #d7dee5;
-  --fg-2:  #aab3bd;
-  --dim:   #6c7682;
-  --faint: #49525c;
+  --fg:        #cdd6f4;  /* text */
+  --fg-2:      #bac2de;  /* subtext1 */
+  --fg-strong: #f5f6fc;  /* active rows / selection (was #fff) */
+  --dim:       #9399b2;  /* overlay2 */
+  --faint:     #6c7086;  /* overlay0 */
 
-  /* accents (harmonised: L~.82 C~.13, hue varies) */
-  --green: oklch(0.83 0.15 152);
-  --amber: oklch(0.83 0.14 80);
-  --cyan:  oklch(0.83 0.11 215);
-  --mag:   oklch(0.80 0.12 330);
-  --red:   oklch(0.68 0.19 26);
+  /* accents */
+  --green: #a6e3a1;
+  --amber: #f9e2af;
+  --cyan:  #89dceb;
+  --mag:   #cba6f7;
+  --red:   #f38ba8;
 
   --green-d: color-mix(in oklch, var(--green) 18%, transparent);
   --amber-d: color-mix(in oklch, var(--amber) 18%, transparent);
@@ -36,8 +39,63 @@
   --mag-d:   color-mix(in oklch, var(--mag)   18%, transparent);
   --red-d:   color-mix(in oklch, var(--red)   20%, transparent);
 
+  --bg-glow: #1e2030;  /* body radial-gradient tint (was #10141a) */
+
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --r: 7px;
+}
+
+/* ---- Catppuccin Latte (light) — explicit opt-in via toggle ---- */
+:root[data-theme="light"]{
+  --bg:        #e6e9ef;  /* mantle */
+  --bg-grid:   #eff1f5;  /* base */
+  --panel:     #eff1f5;  /* base */
+  --panel-2:   #e6e9ef;  /* mantle */
+  --panel-3:   #ccd0da;  /* surface0 */
+  --inset:     #dce0e8;  /* crust */
+  --line:      #ccd0da;  /* surface0 */
+  --line-2:    #bcc0cc;  /* surface1 */
+  --line-3:    #acb0be;  /* surface2 */
+
+  --fg:        #4c4f69;  /* text */
+  --fg-2:      #5c5f77;  /* subtext1 */
+  --fg-strong: #1e2030;
+  --dim:       #6c6f85;  /* subtext0 */
+  --faint:     #8c8fa1;  /* overlay1 */
+
+  --green: #40a02b;
+  --amber: #df8e1d;
+  --cyan:  #209fb5;
+  --mag:   #8839ef;
+  --red:   #d20f39;
+
+  --bg-glow: #dce4f7;
+}
+
+/* ---- System preference when no explicit theme was chosen ---- */
+@media (prefers-color-scheme: light){
+  :root:not([data-theme]){
+    --bg:        #e6e9ef;
+    --bg-grid:   #eff1f5;
+    --panel:     #eff1f5;
+    --panel-2:   #e6e9ef;
+    --panel-3:   #ccd0da;
+    --inset:     #dce0e8;
+    --line:      #ccd0da;
+    --line-2:    #bcc0cc;
+    --line-3:    #acb0be;
+    --fg:        #4c4f69;
+    --fg-2:      #5c5f77;
+    --fg-strong: #1e2030;
+    --dim:       #6c6f85;
+    --faint:     #8c8fa1;
+    --green: #40a02b;
+    --amber: #df8e1d;
+    --cyan:  #209fb5;
+    --mag:   #8839ef;
+    --red:   #d20f39;
+    --bg-glow: #dce4f7;
+  }
 }
 
 *{ box-sizing:border-box; }
@@ -45,7 +103,7 @@ html{ -webkit-text-size-adjust:100%; }
 body{
   margin:0;
   background:
-    radial-gradient(1200px 600px at 80% -10%, #10141a 0%, transparent 60%),
+    radial-gradient(1200px 600px at 80% -10%, var(--bg-glow) 0%, transparent 60%),
     var(--bg);
   color:var(--fg);
   font-family:var(--mono);
@@ -54,11 +112,16 @@ body{
   font-feature-settings:"ss02","cv01";
   -webkit-font-smoothing:antialiased;
 }
-::selection{ background:var(--green-d); color:#fff; }
+::selection{ background:var(--green-d); color:var(--fg-strong); }
 a{ color:inherit; text-decoration:none; }
 
-/* ---------- showcase scaffold ---------- */
-.page{ max-width:1640px; margin:0 auto; padding:34px clamp(16px,3vw,40px) 90px; }
+/* ---------- fullscreen scaffold: page fills the viewport, term flexes ---------- */
+html, body{ height:100%; }
+.page{
+  max-width:none; margin:0;
+  padding:16px clamp(12px,2.4vw,28px) 14px;
+  min-height:100vh; display:flex; flex-direction:column;
+}
 
 .page-head{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:14px 26px; margin-bottom:8px; }
 .page-head h1{
@@ -87,14 +150,16 @@ a{ color:inherit; text-decoration:none; }
 .var-block:nth-of-type(2) .vn{ background:var(--amber); }
 .var-block:nth-of-type(3) .vn{ background:var(--cyan); }
 
-/* the framed terminal surface each variant lives in */
+/* the framed terminal surface — flexes to fill the page (fullscreen) */
 .term{
   background:var(--panel);
   border:1px solid var(--line-2);
   border-radius:12px;
   overflow:hidden;
   box-shadow:0 24px 60px -28px #000, 0 1px 0 #ffffff08 inset;
+  display:flex; flex-direction:column; min-height:0;
 }
+.page > .term{ flex:1; }
 
 /* ---------- terminal chrome bar ---------- */
 .bar{
@@ -387,7 +452,7 @@ details.more > .extra{ margin-top:7px; }
 .kd .pane .duo .n small{ display:block; font-size:9.5px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-top:5px; }
 
 footer.foot{
-  margin-top:54px; padding-top:16px; border-top:1px solid var(--line);
+  margin-top:12px; padding-top:12px; border-top:1px solid var(--line);
   color:var(--faint); font-size:11px; display:flex; gap:18px; flex-wrap:wrap;
 }
 footer.foot .g{ color:var(--green); }
