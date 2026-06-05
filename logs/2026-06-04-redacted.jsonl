@@ -17,3 +17,11 @@
 {"command":"bash -c echo \"=== .gitmodules ===\"; cat \"/Users/niclasedge/GITHUB_DG/cc-setup/.gitmodules\" 2>/dev/nu...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:31:32+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T22:33:36+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T22:40:33+02:00"}
+{"command":"bash -c  MKT=\"/Users/niclasedge/claude niclasedge/plugins/marketplaces/niclasedge-pkm\" echo \"=== mar...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:51:29+02:00"}
+{"command":"bash -c  MKT=\"/Users/niclasedge/claude niclasedge/plugins/marketplaces/niclasedge-pkm\" echo \"=== mar...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T22:51:29+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-04T23:06:01+02:00"}
+{"command":"bash -c echo \"=== REPO TOP ===\"; ls -la /Users/niclasedge/GITHUB_DG/cc-setup; echo; echo \"=== templa...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T23:11:37+02:00"}
+{"command":"-","count":179,"mode":"json","rule":"json_leaves","sample":"leaves=179 list_truncated=11","source":"/Users/niclasedge/.claude/settings.json","ts":"2026-06-04T23:13:28+02:00"}
+{"command":"-","count":71,"mode":"csv","rule":"csv_rows","sample":"header_cols=7","source":"/Users/niclasedge/GITHUB_DG/cc-setup/knowledge/skills.csv","ts":"2026-06-04T23:23:31+02:00"}
+{"command":"bash -c  cd /Users/niclasedge/GITHUB_DG/cc-setup echo \"=== deinit ===\"; git submodule deinit -f vend...","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:bash","ts":"2026-06-04T23:49:09+02:00"}
+{"command":"-","count":11,"mode":"json","rule":"json_leaves","sample":"leaves=11 list_truncated=0","source":"/tmp/ccs009-final/.claude/settings.json","ts":"2026-06-04T23:55:16+02:00"}
