@@ -3,11 +3,11 @@ id: CCS-008
 title: >-
   session-end sync-hook: kein Auto-Push/Commit ungeprüfter Branches (Review-Gate
   + Submodul-Safety)
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-06-04 20:57'
-updated_date: '2026-06-04 22:14'
+updated_date: '2026-06-05 07:51'
 labels:
   - infra
   - safety

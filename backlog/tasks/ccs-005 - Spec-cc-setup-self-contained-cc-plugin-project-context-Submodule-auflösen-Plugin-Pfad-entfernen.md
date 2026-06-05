@@ -3,11 +3,11 @@ id: CCS-005
 title: >-
   [Spec] cc-setup self-contained: cc-plugin-project-context-Submodule auflösen +
   Plugin-Pfad entfernen
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-06-04 20:26'
-updated_date: '2026-06-04 22:13'
+updated_date: '2026-06-05 07:51'
 labels: []
 milestone: 'ccs-flat: Submodule auflösen → self-contained Flat-Install'
 dependencies: []
