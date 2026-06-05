@@ -1,5 +1,5 @@
 import { escape } from "@std/html/entities";
-import { buildData } from "./context.ts";
+import { buildData, fmtCost } from "./context.ts";
 import { repoRoot } from "./collectors/project.ts";
 import { readText } from "./shared.ts";
 import { estTokens } from "./md.ts";
@@ -297,8 +297,32 @@ const EXTRA_CSS = `
 // renderPage — full single-page HTML, browser.js-compatible DOM
 // ---------------------------------------------------------------------------
 
+const SIDEBAR_CSS = `
+.kn-body{ display:flex; align-items:stretch; flex:1 1 auto; min-height:0; }
+.kn-projects{ width:232px; flex:0 0 232px; overflow:auto; border-right:1px solid var(--line-2,#1c2229);
+  padding:8px 0; }
+.kn-proj-h{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#6c7682;
+  padding:8px 14px 6px; }
+.kn-proj{ display:flex; flex-direction:column; gap:2px; padding:7px 14px; text-decoration:none;
+  color:inherit; border-left:2px solid transparent; }
+.kn-proj:hover{ background:rgba(127,127,127,.10); }
+.kn-proj.is-active{ background:rgba(127,127,127,.16); border-left-color:oklch(0.83 0.11 215); }
+.kn-proj-n{ font-size:13px; font-weight:600; }
+.kn-proj-s{ font-size:11px; color:#8a929c; }
+.kn-proj-s b{ color:#aab3bd; }
+.kn-title{ font-size:13px; font-weight:700; padding:0 6px; color:#aab3bd; }
+.kn-body .mp{ flex:1 1 auto; min-width:0; }
+@media (prefers-color-scheme: light){
+  .kn-projects{ border-right-color:#ccd0da; }
+  .kn-proj-s{ color:#6c6f85; } .kn-proj-s b{ color:#4c4f69; } .kn-title{ color:#4c4f69; }
+}`;
+
 export async function renderPage(
-  opts: RenderOptions & { context?: Record<string, unknown> },
+  opts: RenderOptions & {
+    context?: Record<string, unknown>;
+    sidebar?: Array<{ name: string; path: string; open_tasks: number; cost_7d: number }>;
+    active?: string;
+  },
 ): Promise<string> {
   const ctx = opts.context ??
     { generated_at: "", cwd: opts.cwd, projects: [], active_project: "", cards: {} };
@@ -315,18 +339,26 @@ export async function renderPage(
   const browserCss = await readText(join(assetsDir, "browser.css")) ?? "";
   const browserJs = await readText(join(assetsDir, "browser.js")) ?? "";
 
-  const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS;
+  const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS + "\n" + SIDEBAR_CSS;
   const dataJson = safeScriptJson(data);
 
-  // Project tabs
-  const active = String(data.active_project ?? "");
-  const projects = (data.projects as Array<{ name: string }>) ?? [];
-  const tabs = projects.map((p) => {
-    const isActive = p.name === active;
-    const cls = isActive ? " is-active" : "";
-    const q = encodeURIComponent(p.name);
-    return `<a class="kn-tab${cls}" href="/?project=${escape(q)}">${escape(p.name)}</a>`;
-  }).join("");
+  // Left project sidebar: name · open tasks · ≈7d cost (from the cached aggregate).
+  const active = opts.active ?? String(data.active_project ?? "");
+  const sb = opts.sidebar ?? [];
+  const sidebarHtml = sb.length
+    ? '<aside class="kn-projects" id="kn-projects"><div class="kn-proj-h">Projekte</div>' +
+      sb.map((p) => {
+        const cls = p.name === active ? " is-active" : "";
+        const q = encodeURIComponent(p.name);
+        return `<a class="kn-proj${cls}" href="/?project=${q}" title="${escape(p.path)}">` +
+          `<span class="kn-proj-n">${escape(p.name)}</span>` +
+          `<span class="kn-proj-s"><b>${p.open_tasks}</b> offen · ${
+            escape(fmtCost(p.cost_7d))
+          }</span>` +
+          "</a>";
+      }).join("") +
+      "</aside>"
+    : "";
 
   // Theme pre-paint init
   const themeInit = "<script>(function(){try{var t=localStorage.getItem('kn-theme');" +
@@ -341,14 +373,19 @@ export async function renderPage(
     themeInit +
     `<style>${css}</style></head><body>` +
     '<div class="kn-shell">' +
-    `<div class="kn-tabs" id="kn-tabs">${tabs}` +
+    `<div class="kn-tabs" id="kn-tabs"><span class="kn-title">knowledge · ${
+      escape(active)
+    }</span>` +
     '<span class="kn-tabs-sp"></span>' +
     '<button class="kn-theme" id="kn-theme-toggle" type="button"' +
     ' aria-label="Theme wechseln">☀</button>' +
     "</div>" +
+    '<div class="kn-body">' +
+    sidebarHtml +
     "<div class='mp' id='mp'><nav class='mp-nav' id='mp-nav'></nav>" +
     "<div class='mp-list' id='mp-list'></div>" +
     "<div class='mp-detail' id='mp-detail'></div></div>" +
+    "</div>" +
     "</div>" +
     `<script>window.DATA = ${dataJson};</script>` +
     `<script>${browserJs}</script>` +

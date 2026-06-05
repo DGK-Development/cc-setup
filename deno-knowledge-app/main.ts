@@ -1,6 +1,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { resolve } from "@std/path";
 import { createHandler } from "./src/server.ts";
+import { startCache } from "./src/cache.ts";
 
 /** Static assets are reused from the existing python app (single source). */
 function assetsDir(): string {
@@ -25,6 +26,11 @@ if (import.meta.main) {
       // best-effort; ignore if `open` is unavailable
     }
   }
+
+  // Prime + periodically refresh the aggregate cache in the background so the
+  // server boots instantly; the sidebar/global fill in once the first scan lands.
+  const claudeHome = `${Deno.env.get("HOME") ?? "/tmp"}/.claude`;
+  startCache(cwd, claudeHome).catch(() => {});
 
   console.log(`knowledge dashboard (deno) → ${url}  (cwd=${cwd})`);
   Deno.serve({ port, hostname: "127.0.0.1" }, createHandler({ cwd, assetsDir: assetsDir() }));

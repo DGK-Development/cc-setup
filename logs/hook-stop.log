@@ -1,4 +1,4 @@
-=== STOP HOOK 2026-06-05 18:44:44 ===
+=== STOP HOOK 2026-06-05 20:09:08 ===
 PROJECT: cc-setup
 CWD: /Users/niclasedge/GITHUB_DG/cc-setup
 IS_GIT_REPO: true
@@ -8,12 +8,12 @@ Changes detected, filtering...
 ACTIVE_TARGET: /Users/niclasedge/GITHUB/ObsidianPKM/Efforts/Work/dgk/cc-setup/CHANGELOG.md
 BACKLOG_INPROGRESS: In Progress:
   [MEDIUM] CCS-010 - Externe Stop-Sub-Hooks vendoren oder sauber degradieren (cleanup-dispatch-stop + sync-sessions-to-vault)
+  [MEDIUM] CCS-018 - [Spec] knowledge.py -> Deno: deno-knowledge-app (Voll-Rewrite, pur nativ + @std)
   CCS-003 - Minimal: context-load Layer 1.5 Sprint-Anzeige + read-only sprint_bridge
   CCS-013 - [Spec] knowledge.py — Single-Pane-Status-Dashboard
   CCS-013.01 - Scaffold: uv-inline FastAPI + just overview
   CCS-013.02 - Collectors: backlog + tokens
   CCS-013.03 - Collectors: global + project
-  CCS-013.04 - Collectors: knowledge + tn
 ACTIVE_KIND: project_changelog
 OVERVIEW_FILE: 
 Handing off to inline Claude for CHANGELOG + lessons/decisions...

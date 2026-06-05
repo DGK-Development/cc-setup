@@ -2,6 +2,7 @@ import { serveDir } from "@std/http/file-server";
 import { readDoc, renderPage, resultPage } from "./render.ts";
 import { buildContext, discoverProjects, repoRoot, resolveProjectCwd } from "./context.ts";
 import { gitCommit, gitDelete, gitDiff, gitMerge, gitPush } from "./collectors/index.ts";
+import { getAggregate } from "./cache.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 
@@ -51,13 +52,21 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
     // GET /
     if (req.method === "GET" && pathname === "/") {
       const project = url.searchParams.get("project") ?? "";
-      const projects = await getProjects();
-      const target = resolveProjectCwd(project, projects, opts.cwd);
-      const active = projects.some((p) => p.name === project)
+      // Projects + global come from the cached aggregate (cheap, refreshed in the
+      // background). Fallback (e.g. cache not primed) discovers without stats.
+      const agg = getAggregate();
+      const sidebar = agg?.projects ??
+        (await getProjects()).map((p) => ({ ...p, open_tasks: 0, cost_7d: 0 }));
+      const target = resolveProjectCwd(project, sidebar, opts.cwd);
+      const active = sidebar.some((p) => p.name === project)
         ? project
         : (await repoRoot(opts.cwd)).split("/").pop()!;
-      const context = await buildContext(target, claudeHome, { projects, active_project: active });
-      const html = await renderPage({ cwd: target, context });
+      const context = await buildContext(target, claudeHome, {
+        projects: sidebar,
+        active_project: active,
+        global: agg?.global,
+      });
+      const html = await renderPage({ cwd: target, context, sidebar, active });
       return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
 

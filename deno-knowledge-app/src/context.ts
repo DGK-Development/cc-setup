@@ -12,38 +12,20 @@ import {
   collectTokens,
 } from "./collectors/index.ts";
 import { repoRoot } from "./collectors/project.ts";
+import { discoverProjectsIn, projectRoots } from "./collectors/sidebar.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
-const PROJECTS_BASE = `${HOME}/GITHUB`;
 
 // ---------------------------------------------------------------------------
 // discover_projects + resolve_project_cwd
 // ---------------------------------------------------------------------------
 
-export async function discoverProjects(
+export function discoverProjects(
   activeRepo: string,
   base?: string,
 ): Promise<Array<{ name: string; path: string }>> {
-  const bdir = base ?? PROJECTS_BASE;
-  const found = new Map<string, string>();
-
-  try {
-    for await (const e of Deno.readDir(bdir)) {
-      if (!e.isDirectory) continue;
-      const full = `${bdir}/${e.name}`;
-      try {
-        await Deno.stat(`${full}/backlog`);
-        found.set(e.name, full);
-      } catch { /* no backlog/ */ }
-    }
-  } catch { /* base not readable */ }
-
-  const activeName = activeRepo.split("/").pop()!;
-  if (!found.has(activeName)) found.set(activeName, activeRepo);
-
-  return [...found.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, path]) => ({ name, path }));
+  // Explicit base (tests) → that single root; otherwise all configured roots.
+  return discoverProjectsIn(base ? [base] : projectRoots(), activeRepo);
 }
 
 export function resolveProjectCwd(
@@ -66,7 +48,11 @@ export function resolveProjectCwd(
 export async function buildContext(
   cwd: string,
   claudeHome?: string,
-  opts?: { projects?: Array<{ name: string; path: string }>; active_project?: string },
+  opts?: {
+    projects?: Array<{ name: string; path: string }>;
+    active_project?: string;
+    global?: Record<string, unknown>;
+  },
 ): Promise<Record<string, unknown>> {
   const home = claudeHome ?? `${HOME}/.claude`;
   const projects = opts?.projects ?? [];
@@ -80,7 +66,9 @@ export async function buildContext(
     projects,
     active_project: activeProject,
     cards: {
-      global: await collectGlobal(home),
+      // Global layer is identical for every project → reuse the cached copy when
+      // provided, otherwise collect it live (e.g. tests, cache priming).
+      global: opts?.global ?? await collectGlobal(home),
       project: await collectProject(cwd),
       git: await collectGit(cwd),
       knowledge: await collectKnowledge(cwd),
@@ -361,7 +349,7 @@ export function buildData(context: Record<string, unknown>): Record<string, unkn
   const nav = [
     { g: "Überblick", items: [{ id: "ov", label: "Übersicht", dot: "g" }] },
     {
-      g: "Global",
+      g: "Global · alle Projekte",
       items: [
         { id: "skills", label: "Skills", dot: "g", tok: fmtCompact(skillsTok) },
         { id: "agents", label: "Agents", dot: "c", tok: fmtCompact(agentsTok) },
