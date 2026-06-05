@@ -14,9 +14,16 @@ export interface ProjectRef {
   path: string;
 }
 
+export interface Milestone {
+  name: string;
+  done: number;
+  total: number;
+}
+
 export interface SidebarProject extends ProjectRef {
   open_tasks: number;
   cost_7d: number;
+  milestones: Milestone[];
 }
 
 /** Scan roots: CC_KNOWLEDGE_ROOTS (comma-separated) overrides; default DG + private. */
@@ -66,17 +73,40 @@ export async function countOpenTasks(repoPath: string): Promise<number> {
   return open;
 }
 
-/** Full sidebar aggregate: every discovered project with open-task count + 7d cost. */
+/** Milestones (name + done/total) from a project's backlog/tasks (dev data only). */
+export async function projectMilestones(repoPath: string): Promise<Milestone[]> {
+  const tasksDir = join(repoPath, "backlog", "tasks");
+  const agg = new Map<string, { done: number; total: number }>();
+  try {
+    for await (const e of Deno.readDir(tasksDir)) {
+      if (!e.isFile || !e.name.endsWith(".md")) continue;
+      const text = await readText(join(tasksDir, e.name));
+      if (text === null) continue;
+      const ms = frontmatterField(text, "milestone");
+      if (!ms) continue; // only tasks that belong to a milestone
+      const slot = agg.get(ms) ?? { done: 0, total: 0 };
+      slot.total++;
+      if (frontmatterField(text, "status").trim().toLowerCase() === "done") slot.done++;
+      agg.set(ms, slot);
+    }
+  } catch { /* no backlog/tasks */ }
+  return [...agg.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, v]) => ({ name, done: v.done, total: v.total }));
+}
+
+/** Full sidebar aggregate: every discovered project with open tasks + 7d cost + milestones. */
 export async function collectSidebar(activeRepo: string): Promise<SidebarProject[]> {
   const projects = await discoverProjectsIn(projectRoots(), activeRepo);
   const out: SidebarProject[] = [];
   for (const p of projects) {
     const open_tasks = await countOpenTasks(p.path);
+    const milestones = await projectMilestones(p.path);
     let cost_7d = 0;
     try {
       cost_7d = await sevenDayCostNative(p.path);
     } catch { /* sessions unavailable → 0 */ }
-    out.push({ ...p, open_tasks, cost_7d });
+    out.push({ ...p, open_tasks, cost_7d, milestones });
   }
   return out;
 }

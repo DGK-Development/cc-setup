@@ -313,7 +313,31 @@ export function buildData(
   const sessionsCost = sessions.reduce((sum, s) => sum + s.cost, 0);
   const week = (tok.week as Record<string, unknown>) ?? {};
 
+  // Cross-project milestones (dev backlog data) for the Überblick. Each project's
+  // milestones become grouped list items: name + done/total + status.
+  const projForMs = (context.projects as Array<
+    { name: string; milestones?: Array<{ name: string; done: number; total: number }> }
+  >) ?? [];
+  const msItems = projForMs.flatMap((pr) =>
+    (pr.milestones ?? []).map((m) => ({
+      name: m.name,
+      title: `${m.done}/${m.total} Tasks`,
+      status: m.done === m.total ? "done" : "open",
+      group: pr.name,
+      milestone: m.name,
+      done: m.done === m.total,
+      desc: `${pr.name} · ${m.done}/${m.total} Tasks ${m.done === m.total ? "(fertig)" : "offen"}`,
+    }))
+  );
+
   const coll = {
+    milestones: {
+      title: "Milestones",
+      scope: "alle Projekte",
+      type: "task",
+      accent: "a",
+      items: msItems,
+    },
     skills: { title: "Skills", scope: "global", type: "skill", accent: "g", items: skills },
     agents: { title: "Agents", scope: "global", type: "agent", accent: "c", items: agents },
     hooks: { title: "Hooks", scope: "global", type: "hook", accent: "", items: hooks },
@@ -402,7 +426,13 @@ export function buildData(
     },
   ];
   const nav = view === "overview"
-    ? [{ g: "Überblick · alle Projekte", items: [ovItem] }, globalGroup]
+    ? [
+      {
+        g: "Überblick · alle Projekte",
+        items: [{ id: "milestones", label: "Milestones", dot: "a" }, ovItem],
+      },
+      globalGroup,
+    ]
     : [{ g: "Übersicht", items: [ovItem] }, ...projectGroups];
 
   const branch = String(gitc.branch ?? p.branch ?? "?");

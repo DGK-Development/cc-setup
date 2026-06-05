@@ -21,6 +21,7 @@ Deno.test("buildData coll has the knowledge.py section contract", () => {
       "hooks",
       "lessons",
       "memory",
+      "milestones",
       "pknow",
       "psections",
       "sessions",

@@ -60,7 +60,7 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
       // primed) discovers without stats.
       const agg = getAggregate();
       const sidebar = agg?.projects ??
-        (await getProjects()).map((p) => ({ ...p, open_tasks: 0, cost_7d: 0 }));
+        (await getProjects()).map((p) => ({ ...p, open_tasks: 0, cost_7d: 0, milestones: [] }));
       // No (valid) project selected → cross-project Überblick view (global + sidebar).
       const selected = sidebar.some((p) => p.name === project) ? project : "";
       const view = selected ? "project" as const : "overview" as const;

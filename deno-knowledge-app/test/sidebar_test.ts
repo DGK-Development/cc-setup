@@ -1,5 +1,9 @@
 import { assertEquals } from "@std/assert";
-import { countOpenTasks, discoverProjectsIn } from "../src/collectors/sidebar.ts";
+import {
+  countOpenTasks,
+  discoverProjectsIn,
+  projectMilestones,
+} from "../src/collectors/sidebar.ts";
 import { join } from "@std/path";
 
 async function tmpProject(root: string, name: string, withBacklog: boolean): Promise<string> {
@@ -43,4 +47,18 @@ Deno.test("countOpenTasks counts non-Done task files", async () => {
 Deno.test("countOpenTasks returns 0 without a backlog dir", async () => {
   const repo = await Deno.makeTempDir();
   assertEquals(await countOpenTasks(repo), 0);
+});
+
+Deno.test("projectMilestones groups tasks by milestone with done/total", async () => {
+  const repo = await Deno.makeTempDir();
+  const tasks = join(repo, "backlog", "tasks");
+  await Deno.mkdir(tasks, { recursive: true });
+  await Deno.writeTextFile(join(tasks, "a.md"), "---\nid: a\nstatus: Done\nmilestone: m1\n---\n");
+  await Deno.writeTextFile(join(tasks, "b.md"), "---\nid: b\nstatus: To Do\nmilestone: m1\n---\n");
+  await Deno.writeTextFile(join(tasks, "c.md"), "---\nid: c\nstatus: Done\nmilestone: m2\n---\n");
+  await Deno.writeTextFile(join(tasks, "d.md"), "---\nid: d\nstatus: To Do\n---\n"); // no milestone
+  assertEquals(await projectMilestones(repo), [
+    { name: "m1", done: 1, total: 2 },
+    { name: "m2", done: 1, total: 1 },
+  ]);
 });

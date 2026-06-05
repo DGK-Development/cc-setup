@@ -664,6 +664,6 @@
     sync();
   })();
 
-  /* boot — land on the overview grid */
-  select("ov");
+  /* boot — land on the first nav entry (overview view: Milestones; project view: Übersicht) */
+  select((NAV[0] && NAV[0].items && NAV[0].items[0] && NAV[0].items[0].id) || "ov");
 })();
