@@ -2,7 +2,7 @@
 # patch-local-ci-paths.sh — plugin-relative paths in vendored local-ci SKILL.md
 set -euo pipefail
 
-SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/templates/skills/local-ci/SKILL.md"
+SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/skills/local-ci/SKILL.md"
 [[ -f "$SKILL" ]] || exit 0
 
 python3 - <<'PY' "$SKILL"

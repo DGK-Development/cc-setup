@@ -11,3 +11,5 @@
 {"command":"git -C /home/nedge/git/cc-setup show eb12570 -- CLAUDE.md","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T22:02:16+02:00"}
 {"command":"git -C /home/nedge/git/cc-setup show eb12570 -- templates/agents/agent-index.md","count":1,"mode":"wrap","rule":"email","sample":"niclas.edge@datagroup.de","source":"wrap:git","ts":"2026-06-03T22:02:18+02:00"}
 {"command":"/home/nedge/git/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T22:04:08+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T23:47:17+02:00"}
+{"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-03T23:47:17+02:00"}

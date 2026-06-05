@@ -1,11 +1,6 @@
-=== STOP HOOK 2026-06-03 22:44:02 ===
+=== STOP HOOK 2026-06-05 11:01:00 ===
 PROJECT: cc-setup
 CWD: /Users/niclasedge/GITHUB_DG/cc-setup
 IS_GIT_REPO: true
 
-Debounce passed, gathering changes...
-Changes detected, filtering...
-ACTIVE_TARGET: /Users/niclasedge/GITHUB/ObsidianPKM/Efforts/Work/dgk/cc-setup/CHANGELOG.md
-ACTIVE_KIND: project_changelog
-OVERVIEW_FILE: 
-Handing off to inline Claude for CHANGELOG + lessons/decisions...
+Exit: debounce (297s < 900s)

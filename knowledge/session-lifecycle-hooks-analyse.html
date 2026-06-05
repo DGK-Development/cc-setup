@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cc-setup — Session-Lifecycle, Wissens-Architektur & Zielbild</title>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { curve: "basis" } });
+</script>
+<style>
+  :root{
+    --bg:#fafaf9; --fg:#1c1917; --muted:#57534e; --line:#e7e5e4;
+    --accent:#2563eb; --warn:#b91c1c; --warnbg:#fef2f2; --okbg:#f0fdf4; --ok:#15803d;
+    --card:#fff; --code:#f5f5f4; --goalbg:#eff6ff; --goal:#1d4ed8;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1c1917; --fg:#e7e5e4; --muted:#a8a29e; --line:#292524;
+      --card:#262320; --code:#1a1816; --warnbg:#2a1414; --okbg:#13241a; --goalbg:#11203a; }
+  }
+  *{box-sizing:border-box}
+  body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); margin:0; padding:0 1rem;}
+  .wrap{max-width:980px; margin:0 auto; padding:2.5rem 0 5rem;}
+  h1{font-size:1.9rem; line-height:1.2; margin:0 0 .3rem;}
+  h2{font-size:1.35rem; margin:2.6rem 0 .8rem; padding-top:.6rem; border-top:1px solid var(--line);}
+  h3{font-size:1.05rem; margin:1.6rem 0 .4rem;}
+  .sub{color:var(--muted); margin:0 0 1.5rem;}
+  p{margin:.5rem 0;}
+  code{background:var(--code); padding:.1em .35em; border-radius:4px; font-size:.86em;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:1rem 1.2rem; margin:1rem 0;}
+  .card.warn{background:var(--warnbg); border-color:var(--warn);}
+  .card.goal{background:var(--goalbg); border-color:var(--goal);}
+  .mermaid{background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:1rem; margin:1rem 0; overflow-x:auto;}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; margin:1rem 0;}
+  th,td{border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top;}
+  th{background:var(--code);}
+  .dup{color:var(--warn); font-weight:600;}
+  .tag{display:inline-block; font-size:.72rem; font-weight:700; padding:.1rem .5rem;
+    border-radius:999px; vertical-align:middle;}
+  .tag.hi{background:var(--warnbg); color:var(--warn); border:1px solid var(--warn);}
+  .tag.md{background:#fffbeb; color:#b45309; border:1px solid #f59e0b;}
+  .tag.lo{background:var(--okbg); color:var(--ok); border:1px solid var(--ok);}
+  .tag.done{background:var(--okbg); color:var(--ok); border:1px solid var(--ok);}
+  .rec{border-left:4px solid var(--accent); padding:.2rem 0 .2rem 1rem; margin:1.1rem 0;}
+  .rec.hi{border-color:var(--warn);}
+  .rec h3{margin:.1rem 0 .3rem;}
+  .legend{font-size:.82rem; color:var(--muted);}
+  .legend b{color:var(--warn);}
+  .diff{font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:.82rem;
+    background:var(--code); border:1px solid var(--line); border-radius:8px;
+    padding:.7rem .9rem; margin:.6rem 0; white-space:pre-wrap; line-height:1.45;}
+  .diff .del{color:var(--warn);} .diff .add{color:var(--ok);} .diff .ctx{color:var(--muted);}
+  footer{margin-top:3rem; color:var(--muted); font-size:.8rem; border-top:1px solid var(--line); padding-top:1rem;}
+  ul{margin:.4rem 0 .4rem 0; padding-left:1.2rem;} li{margin:.25rem 0;}
+  .now::before{content:"IST "; font-weight:700; color:var(--muted);}
+  .ziel::before{content:"ZIEL "; font-weight:700; color:var(--goal);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>cc-setup — Session-Lifecycle, Wissens-Architektur &amp; Zielbild</h1>
+<p class="sub">Wie eine Session abläuft (SessionStart → UserPromptSubmit → Tool-Loop → Stop), <strong>woher Tasks kommen</strong> (Backlog vs. Vault-<code>tn</code>), welche Skills automatisch triggern, und wie Wissen pro Repo vereinheitlicht wird. Mit konkretem <strong>Zielbild</strong> für globale &amp; repo-lokale <code>CLAUDE.md</code>. &nbsp;Stand: 2026-06-05 (aktualisiert auf die Flat-Migration; ersetzt die Plugin-Doppel-Analyse vom 2026-06-04).</p>
+
+<div class="card goal">
+  <strong>Leitprinzip:</strong> <em>Einmal initial laden, dann gezielt aus Rule-Files sammeln — statt jedes Mal neu zu suchen.</em><br>
+  Always-on (jeder Start) bleibt minimal: Backlog-Stand + schlanke Verhaltens-Leitplanken. Detail-Wissen (Konventionen, Entscheidungen, Lessons, Specs) liegt in <em>Rule-Files</em> (Skills, <code>knowledge/</code>, <code>backlog/{decisions,docs}</code>, Vault-Specs) und wird <strong>on-demand</strong> über <code>/context-load</code> + qmd gezogen, wenn die Aufgabe es verlangt.
+</div>
+
+<div class="card warn">
+  <strong>Migrations-/Deployment-Hinweis:</strong> Dieses Dokument zeigt den <strong>Flat-Ziel-Zustand</strong> (Quelle ist nach CCS-005/CCS-012 flach im Repo-Root, Submodul aufgelöst, Hooks aus <em>einer</em> Quelle in <code>~/.claude/settings.json</code>). Die alte Analyse beschrieb <span class="dup">doppelt registrierte Hooks</span> (settings.json <em>und</em> Plugin) → <code>inject-project-context</code> + <code>/context-load</code> feuerten 2×. <strong>In der flachen Quelle ist das aufgelöst.</strong> Solange die Flat-Commits aber noch <em>nicht deployed</em> sind (kein <code>just deploy</code> + Restart), kann das laufende <code>~/.claude</code> real noch den alten Doppel-Zustand fahren. Verifikation nach Deploy: genau <strong>ein</strong> SessionStart-Block, <strong>ein</strong> context-load-Trigger, jeder Skill <strong>einmal</strong> gelistet.
+</div>
+
+<h2>1. Ist-Lifecycle (flat) — Gesamtfluss</h2>
+<div class="mermaid">
+flowchart TD
+  subgraph SRC["Wissensquellen — pro Repo"]
+    direction LR
+    BL[("Backlog.md<br/>backlog/{tasks,decisions,docs}<br/>Repo-Tasks + ADR + Guides")]
+    KN[("knowledge/<br/>lektion-*.md · *.html<br/>Lessons + Visuals")]
+    TN[("Vault TaskNotes (tn)<br/>~/GITHUB/ObsidianPKM<br/>tasknotes_cli.py")]
+    QM[("qmd Wiki + Repo<br/>BM25 + Vector + HyDE")]
+  end
+
+  A([Session-Start]):::ev --> SS[SessionStart-Hooks]
+  SS --> R1["redactor session-start<br/>Strict-Mode-Reminder"]
+  SS --> IPC["inject-project-context.sh<br/><b>Backlog-Stand PRIMÄR</b><br/>offene Milestones · In-Progress · nächste To-Dos<br/>no-op ohne backlog/"]
+  SS --> SP["superpowers: using-superpowers<br/>(extern, voll injiziert)"]:::ext
+  IPC -. liest .-> BL
+  SS --> W([Warte auf 1. Prompt]):::ev
+
+  W --> UPS[UserPromptSubmit-Hooks]
+  UPS --> R2["redactor prompt-redaction"]
+  UPS --> UCM["userprompt-context-match.sh<br/>injiziert /context-load-Trigger<br/>1× · marker-gated · Prompt ≥ 10 Zeichen"]
+  UCM --> CL[/"Claude führt /context-load aus"/]:::skill
+
+  CL --> L1["Layer 1 · context-resolve.py<br/><b>tn-Task-Match — ON-DEMAND</b>"]
+  CL --> L15["Layer 1.5 · sprint_bridge.py<br/>Backlog-Sprint-Survey · read-only"]
+  CL --> L2["Layer 2 · qmd Wiki · global, CWD-unabhängig"]
+  CL --> L3["Layer 3 · qmd Repo · falls CWD = ~/GITHUB/REPO"]
+  CL --> L4["Layer 4 · Synthese + Konflikt-/Staleness-Check"]
+  L1 -. nur on-demand .-> TN
+  L15 -. liest .-> BL
+  L2 -. .-> QM
+  L3 -. "CLAUDE.md · knowledge/ · ADRs" .-> QM
+
+  L4 --> TL[[Tool-Loop]]
+  TL --> PRE{"PreToolUse redactor-Gate<br/>Bash · Read · Grep · Edit · Write · MCP"}
+  TL --> PO["PostToolUse · post-write Secret-Scan"]
+  TL --> TE([Turn-Ende]):::ev
+
+  TE --> STOP[Stop: stop-workflow.sh]
+  STOP --> CD["cleanup-dispatch-stop.sh<br/>ruff/fallow/format auf geänderte Files"]
+  CD --> PS[pkm-sync-stop.sh]
+  PS -->|"Changes + Debounce 15min"| BLK["block: PKM-Doku-Prompt<br/>Lessons → knowledge/ · Backlog-Task-Doku"]:::skill
+  PS -->|"2. Stop (still)"| SV["sync-sessions-to-vault.sh<br/>JSONL → Vault logs/Sessions"]
+  PS -.->|"NIE auto-push/commit ungeprüft · CCS-008"| HG[/"Human Review-Gate"/]:::warn
+  BLK -. schreibt .-> KN
+  BLK -. schreibt .-> BL
+
+  classDef ev fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+  classDef ext fill:#f5f5f4,stroke:#a8a29e,color:#44403c,stroke-dasharray:4 3;
+  classDef skill fill:#f0fdf4,stroke:#15803d,color:#14532d;
+  classDef warn fill:#fef2f2,stroke:#b91c1c,color:#7f1d1d;
+</div>
+<p class="legend">Gestrichelt = externes Plugin (superpowers). Grün = Skill-Ausführung. <b style="color:#b91c1c">Rot</b> = Human-Oversight-Gate: KI committet/pusht ungeprüfte Branches nie automatisch.</p>
+
+<h2>2. Woher kommen Tasks? — Backlog (primär) vs. Vault-<code>tn</code> (on-demand)</h2>
+<div class="mermaid">
+flowchart LR
+  subgraph REPO["Repo (~/GITHUB_DG/cc-setup)"]
+    B1["backlog/tasks/*.md<br/>Milestones · Sprints"] --> B2["backlog CLI / sprint_bridge.py"]
+  end
+  subgraph VAULT["Vault (~/GITHUB/ObsidianPKM)"]
+    V1["Efforts/**/tasks/*.md<br/>TaskNotes-Frontmatter v1"] --> V2["tasknotes_cli.py (tn)"]
+  end
+  B2 -->|"SessionStart · AUTOMATISCH"| H["inject-project-context.sh<br/>Backlog-Stand im Header"]:::auto
+  B2 -->|"context-load Layer 1.5 · read-only"| C["/context-load Synthese"]:::auto
+  V2 -->|"NUR on-demand · Layer 1<br/>(explizite Vault-Anfrage / Match)"| C
+  classDef auto fill:#f0fdf4,stroke:#15803d,color:#14532d;
+</div>
+<table>
+<thead><tr><th>Aspekt</th><th>Backlog.md (Repo-Tasks)</th><th>Vault-<code>tn</code> (TaskNotes)</th></tr></thead>
+<tbody>
+<tr><td>Quelle</td><td><code>backlog/tasks/</code> im Repo</td><td><code>Efforts/**/tasks/</code> im Vault</td></tr>
+<tr><td>CLI</td><td><code>backlog …</code> / <code>sprint_bridge.py</code></td><td><code>tn …</code> / <code>tasknotes_cli.py</code></td></tr>
+<tr><td>Laden</td><td><strong>automatisch</strong> bei SessionStart (Header) + Layer 1.5</td><td><strong>on-demand</strong> in <code>/context-load</code> Layer 1</td></tr>
+<tr><td>Entscheidung</td><td colspan="2">CCS-006 — <em>Backlog auto-load primär, Vault-TaskNotes nur on-demand</em></td></tr>
+<tr><td>Status-Regel</td><td>To Do → In Progress → Done (nur via CLI)</td><td>audit→question→plan→action→verify→done; <strong>nur User setzt done</strong></td></tr>
+</tbody>
+</table>
+
+<h2>3. Hooks im Detail (Ziel-Zustand: eine Quelle)</h2>
+
+<h3>SessionStart</h3>
+<div class="mermaid">
+flowchart TD
+  S([SessionStart]) --> R[redactor session-start]
+  S --> P[inject-project-context.sh]
+  P --> P0{backlog/ im CWD-Repo?}
+  P0 -->|ja| O["Output: Projekt-Header<br/>offene Milestones (done/total + Subtask-IDs)<br/>In-Progress-Tasks · nächste To-Dos"]
+  P0 -->|nein| X([exit 0 — still])
+  O --> L[(logs/hook-session-start.log)]
+</div>
+<p>Backlog ist der primäre Auto-Kontext. Vault-TaskNotes werden hier <strong>nicht</strong> geladen. Ohne <code>backlog/</code> bricht der Hook still ab (no-op).</p>
+
+<h3>UserPromptSubmit → /context-load</h3>
+<div class="mermaid">
+flowchart TD
+  U([UserPromptSubmit]) --> R[redactor prompt — Redaction]
+  U --> M[userprompt-context-match.sh]
+  M --> M1{Marker für diese session-id da?}
+  M1 -->|ja, schon getriggert| Z([exit 0 — still])
+  M1 -->|nein| M2[touch Marker]
+  M2 --> M3{Prompt ≥ 10 Zeichen?}
+  M3 -->|nein| Z
+  M3 -->|ja| M4["injiziert genau EINEN<br/>context-load-Trigger (flat, de-namespaced)"]
+  M4 --> C[/"/context-load: Layer 1–4"/]:::skill
+  classDef skill fill:#f0fdf4,stroke:#15803d,color:#14532d;
+</div>
+<p>Flat-Ziel: <strong>ein</strong> Trigger (<code>/context-load</code>), nicht mehr zusätzlich <code>/project-context:context-load</code>. Der Deploy de-namespaced Skill-Refs (<code>/project-context:…</code> → <code>/…</code>).</p>
+
+<h3>Stop-Chain</h3>
+<div class="mermaid">
+flowchart TD
+  ST([Stop]) --> SW[stop-workflow.sh]
+  SW --> C1[cleanup-dispatch-stop.sh<br/>ruff / fallow / format auf geänderte Files]
+  C1 --> C2[pkm-sync-stop.sh]
+  C2 --> D0{"stop_hook_active? — 2. Fire"}
+  D0 -->|true| SIL[still → leeres Output]
+  D0 -->|false| D1{Changes + Debounce 15min ok?}
+  D1 -->|nein| SIL
+  D1 -->|ja| D2["block: REASON mit Tasks<br/>1 Session-Eintrag · 2 Resume · 3 Lessons → knowledge/<br/>4 Backlog-Task-Doku · 5 Git (kein Auto-Push)"]:::skill
+  D2 --> END1([exit 0 — Sync übersprungen])
+  SIL --> SS[sync-sessions-to-vault.sh<br/>JSONL → Vault logs/Sessions/*.md]
+  classDef skill fill:#f0fdf4,stroke:#15803d,color:#14532d;
+</div>
+<p>Nuance: blockt <code>pkm-sync-stop.sh</code> (Normalfall bei Änderungen), läuft <code>sync-sessions-to-vault.sh</code> erst beim <strong>nächsten</strong> Stop. <strong>Auto-Push/Commit ungeprüfter Branches ist verboten</strong> (CCS-008 + Org-Regel Human-Oversight).</p>
+
+<h2>4. Skills — automatisch vs. manuell</h2>
+<p>cc-setup deployt 12 tier-1-Skills (<code>knowledge/skills.csv</code>, <code>quelle=projekt</code>). Nur <em>zwei</em> Pfade triggern automatisch:</p>
+<table>
+<thead><tr><th>Trigger-Art</th><th>Skill(s)</th><th>Wann</th></tr></thead>
+<tbody>
+<tr><td><span class="tag lo">AUTO</span></td><td><code>/context-load</code></td><td>1. Prompt (UserPromptSubmit), genau 1×</td></tr>
+<tr><td><span class="tag lo">AUTO (extern)</span></td><td><code>using-superpowers</code></td><td>SessionStart, voll injiziert (superpowers-Plugin)</td></tr>
+<tr><td><span class="tag md">manuell / modell-entschieden</span></td><td><code>audit</code>, <code>review</code>, <code>qmd</code>, <code>recall</code>, <code>knowledge</code>, <code>daily-review</code>, <code>check-links</code>, <code>opensrc</code>, <code>local-ci</code>, <code>session-stop</code>, <code>cc-setup</code></td><td>Slash-Befehl oder vom Modell per Description-Match gewählt</td></tr>
+</tbody>
+</table>
+<p><strong>Optimale Skills je Phase:</strong> Start → <code>context-load</code> (auto). Verstehen/Suchen → <code>qmd</code>, <code>recall</code>, <code>opensrc</code>. Bauen → <code>tdd</code>, <code>diagnose</code>, <code>karpathy-guidelines</code>. Doku/Wissen → <code>knowledge</code>, <code>doc-coauthoring</code>. Pre-Push → <code>local-ci</code>. Ende → <code>session-stop</code> (Stop-Hook-gestützt). Audit → <code>audit</code> (LOGS + CONFIG). Flat-Ziel: jeder Skill erscheint <strong>einmal</strong> in der Liste (kein <code>/cc-setup:*</code>-Doppel mehr).</p>
+
+<h2>5. Wissens-Architektur — Hybrid (decision-001)</h2>
+<p>Backlog wird <strong>nicht</strong> die einzige Wissensquelle. Drei Genres, drei Töpfe — die Wahl hängt davon ab, <em>was</em> der Inhalt ist:</p>
+<div class="mermaid">
+flowchart TD
+  Q0{Neuer Wissens-Eintrag} --> Q1{"Eine Entscheidung?<br/>X statt Y, weil Z"}
+  Q1 -->|ja| D1["backlog decision · ADR<br/>backlog/decisions/<br/>append-only, Status-Lifecycle"]:::dec
+  Q1 -->|nein| Q2{"Wiederholbare Anleitung?<br/>So machen wir X"}
+  Q2 -->|ja| D2["backlog doc (type: guide)<br/>backlog/docs/<br/>CLI+MCP+Web editierbar"]:::doc
+  Q2 -->|nein| Q3{Lesson oder Visual?}
+  Q3 -->|Lesson| D3["knowledge/lektion-*.md<br/>evidenzlastig, evolvierend"]:::kn
+  Q3 -->|Visual/HTML| D4["knowledge/*.html<br/>Mermaid/interaktiv"]:::kn
+  classDef dec fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+  classDef doc fill:#f0fdf4,stroke:#15803d,color:#14532d;
+  classDef kn fill:#fffbeb,stroke:#b45309,color:#7c2d12;
+</div>
+<table>
+<thead><tr><th>Frage</th><th>Genre</th><th>Topf</th><th>Tooling</th></tr></thead>
+<tbody>
+<tr><td>Warum haben wir X entschieden?</td><td>ADR</td><td><code>backlog/decisions/</code></td><td><code>backlog decision create</code> + Datei-/Web-Edit (kein CLI-<code>edit</code>)</td></tr>
+<tr><td>Wie machen wir X (Standard)?</td><td>Guide</td><td><code>backlog/docs/</code></td><td><code>backlog doc create/update</code> (CLI+MCP+Web)</td></tr>
+<tr><td>Welcher Fehler + Fix?</td><td>Lesson</td><td><code>knowledge/lektion-*.md</code></td><td>Write-Tool + CLAUDE.md-1-Zeilen-Index</td></tr>
+<tr><td>Visuelle Analyse?</td><td>Visual</td><td><code>knowledge/*.html</code></td><td>Write-Tool (Backlog rendert kein HTML)</td></tr>
+</tbody>
+</table>
+<p class="legend">Kein Lock-in: alle Töpfe sind Plain-Markdown/-HTML im Git → grep-/qmd-indexierbar. Grenzregel (eine Zeile in CLAUDE.md): <strong>ADR → <code>decision</code>, Guide → <code>doc</code>, Lesson/Visual → <code>knowledge/</code></strong>. Vollständige CRUD-Matrix: <code>README-backlog.html</code>.</p>
+
+<h2>6. Globale <code>CLAUDE.md</code> — was bleibt, was wird Pfad-Referenz</h2>
+<p>Regel: <strong>Always-loaded</strong> (jeder Turn) nur Verhaltens-Leitplanken + Pointer. Detail wandert in Rule-Files (Skills, Specs, <code>knowledge/</code>) und kommt <strong>on-demand</strong>. Es gibt zwei Schichten in <code>~/.claude/CLAUDE.md</code>:</p>
+<ul>
+  <li><strong>User-global</strong> (handgepflegt): Kern-Prinzipien, Setup, TaskNotes, Redactor.</li>
+  <li><strong>cc-setup-managed-Block</strong> (<code>&lt;!-- BEGIN/END cc-setup --&gt;</code>, aus <code>CONTRACT.md</code>): Runtime-Vertrag + SPOC-Routing — schon kompakt, bleibt.</li>
+</ul>
+<table>
+<thead><tr><th>Abschnitt (user-global)</th><th>Bleibt always-on</th><th>Wird Pfad-Referenz</th></tr></thead>
+<tbody>
+<tr><td>Kern-Prinzipien (Karpathy)</td><td>5 Headlines (Think Before Coding · YAGNI · Surgical · Verifiable · Tradeoffs)</td><td>Detail-Bullets → Skill <code>karpathy-guidelines</code> (existiert)</td></tr>
+<tr><td>TaskNotes (<code>tn</code>) Arbeitsweise</td><td>3–4 Zeilen: <code>tn</code> global, CWD-Auto-Detection, „nur User setzt done"</td><td>Workflow/Status-Pipeline/Commands → <code>tasknote-frontmatter-syntax-v1.md</code> + Vault-<code>CLAUDE.md</code></td></tr>
+<tr><td>Redactor (Strict Mode)</td><td>3 Zeilen: strict aktiv, <code>r wrap --</code>, <code>--type</code> für strukturierte Files</td><td>Fallstricke/Config → <code>knowledge/lektion-redactor-strict-mode-*.md</code></td></tr>
+<tr><td>Setup (Sprache/Memory/Projekte)</td><td>bleibt (schon knapp)</td><td>—</td></tr>
+</tbody>
+</table>
+
+<h2>7. Per-Repo-Muster (gleiches Vorgehen wie global)</h2>
+<div class="mermaid">
+flowchart LR
+  CMD["Repo CLAUDE.md<br/>nur Hard-Rules + 1-Zeilen-Index"]:::min
+  CMD -->|"on-demand"| K["knowledge/<br/>lektion-*.md · *.html"]
+  CMD -->|"on-demand"| DEC["backlog/decisions/ (ADR)"]
+  CMD -->|"on-demand"| DOC["backlog/docs/ (Guides)"]
+  CMD -->|"context-load Layer 3 · qmd"| Q["semantischer Repo-Index"]
+  classDef min fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+</div>
+<ul>
+  <li><strong>Repo-<code>CLAUDE.md</code></strong> = nur repo-spezifische Hard-Rules (z.B. cc-setup: Backlog-CLI-Regeln) + ein <code>## Knowledge Index</code> (1 Zeile pro <code>knowledge/</code>-Datei, ~120 Zeichen, „wann lese ich das?").</li>
+  <li><strong>Konvention steht schon</strong> in <code>knowledge/README.md</code> (CCS-002.04): Slug-Naming, Referenz-Schema, How-to-add.</li>
+  <li><strong>SessionStart</strong> lädt den Backlog-Stand; <strong>context-load Layer 3</strong> holt <code>CLAUDE.md</code>/<code>knowledge/</code>/ADRs via qmd on-demand — kein wiederholter grep-Loop.</li>
+</ul>
+
+<h2>8. Zielbild — „einmal laden, dann aus Rule-Files sammeln"</h2>
+<div class="mermaid">
+flowchart TD
+  ST([SessionStart]) --> MIN["Always-on MINIMAL:<br/>Backlog-Stand + schlanke Leitplanken<br/>(CLAUDE.md = Pointer, kein Volltext)"]:::min
+  MIN --> TASK{Aufgabe X steht an}
+  TASK -->|"context-load + qmd"| PULL["gezielt das passende Rule-File ziehen:<br/>Skill · decision · doc · knowledge/ · Spec"]:::pull
+  PULL --> WORK[Arbeiten — eine nächste Aktion]
+  WORK --> STOP([Stop])
+  STOP --> BACK["Ergebnis zurück in Rule-Files:<br/>Lesson → knowledge/ · Entscheidung → decision<br/>Standard → doc · Task-Doku → backlog"]:::back
+  BACK -. "Wissen akkumuliert in Files,<br/>nicht in jedem Turn neu gesucht" .-> MIN
+  classDef min fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+  classDef pull fill:#f0fdf4,stroke:#15803d,color:#14532d;
+  classDef back fill:#fffbeb,stroke:#b45309,color:#7c2d12;
+</div>
+
+<h3>Umsetzbare Schritte (Vorschläge — Human-Oversight, nichts auto-appliziert)</h3>
+
+<div class="rec hi">
+  <h3><span class="tag hi">HOCH</span> S0 — Flat deployen &amp; Doppel verifizieren</h3>
+  <p>Nach Review: <code>just deploy</code> + Neustart. <em>Verifizierbar:</em> ein SessionStart-Block, ein context-load-Trigger, jeder Skill 1× gelistet. Erst danach stimmt das laufende System mit diesem Dokument überein.</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag md">MITTEL</span> S1 — Global CLAUDE.md: Karpathy auf Headlines kürzen</h3>
+  <div class="diff"><span class="ctx">~/.claude/CLAUDE.md · ## Kern-Prinzipien</span>
+<span class="del">- &lt;~35 Zeilen Detail-Bullets je Prinzip&gt;</span>
+<span class="add">+ 5 Headlines (Think Before Coding · YAGNI · Surgical · Verifiable · Tradeoffs)</span>
+<span class="add">+ Detail: Skill `karpathy-guidelines`</span></div>
+</div>
+
+<div class="rec">
+  <h3><span class="tag md">MITTEL</span> S2 — Global CLAUDE.md: tn-Arbeitsweise auf Kern + Pfad</h3>
+  <div class="diff"><span class="ctx">~/.claude/CLAUDE.md · ## TaskNotes (tn)</span>
+<span class="del">- Workflow-Block + Status-Pipeline + Command-Liste (~35 Zeilen)</span>
+<span class="add">+ tn global · CWD-Auto-Detection · nur User setzt done</span>
+<span class="add">+ Spec: Atlas/Wiki/.../tasknote-frontmatter-syntax-v1.md · Vault CLAUDE.md</span></div>
+</div>
+
+<div class="rec">
+  <h3><span class="tag md">MITTEL</span> S3 — Global CLAUDE.md: Redactor auf 3 Zeilen + Lektion</h3>
+  <div class="diff"><span class="ctx">~/.claude/CLAUDE.md · ## Redactor (Strict Mode)</span>
+<span class="del">- Fallstricke/Config/Knowledge-Lookup (~45 Zeilen)</span>
+<span class="add">+ strict aktiv · `r wrap -- &lt;cmd&gt;` · strukturierte Files via `--type`</span>
+<span class="add">+ Fallstricke: knowledge/lektion-redactor-strict-mode-*.md</span></div>
+</div>
+
+<div class="rec">
+  <h3><span class="tag lo">DONE/PILOT</span> S4 — Wissens-Hybrid ausrollen</h3>
+  <p>decision-001 + doc-001 sind in cc-setup pilotiert. <span class="tag done">erledigt</span> hier; nächster Schritt: dasselbe Genre-Schema in <strong>einem weiteren Repo</strong> anwenden (1 ADR + 1 Guide als Pilot), bevor Bestands-<code>knowledge/</code>-Inhalte migriert werden.</p>
+</div>
+
+<div class="rec">
+  <h3><span class="tag lo">NIEDRIG</span> S5 — knowledge-Index als Deploy-Standard</h3>
+  <p><code>knowledge/README.md</code>-Konvention (1-Zeilen-Index) existiert. Vorschlag: in <code>organize-project</code>/Deploy als Template verankern, damit jedes neue Repo den minimal-CLAUDE.md-+-Index-Pattern erbt.</p>
+</div>
+
+<div class="card goal">
+  <strong>Netto-Effekt S1–S3:</strong> die global jeden Turn geladene <code>CLAUDE.md</code> schrumpft um ~115 Zeilen Detail auf Leitplanken + Pointer — bei gleicher Wirkung, weil das Detail on-demand aus den Rule-Files kommt. Genau „initial minimal laden, dann gezielt sammeln".
+</div>
+
+<footer>
+Quellen: <code>decision-001</code> (Knowledge-Hybrid), <code>decision-002</code> (Flat-Install), <code>doc-001</code> (Wissens-Genres), <code>doc-002</code> (Architektur/Deployment), <code>knowledge/README.md</code>, <code>knowledge/skills.csv</code>, <code>CONTRACT.md</code>, Hook-Scripts (<code>inject-project-context.sh</code>, <code>userprompt-context-match.sh</code>, <code>stop-workflow.sh</code>, <code>pkm-sync-stop.sh</code>). Verwandt: <a href="README-backlog.html">README-backlog.html</a> (CRUD-Matrix). &nbsp;Analyse-Artefakt — Empfehlungen sind Vorschläge (Human-Oversight, nichts auto-appliziert).
+</footer>
+
+</div>
+</body>
+</html>

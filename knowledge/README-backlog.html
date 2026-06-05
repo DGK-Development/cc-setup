@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backlog.md — Datei-Modell, Verbindungen &amp; Knowledge-Vergleich</title>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { curve: "basis" } });
+</script>
+<style>
+  :root{
+    --bg:#fafaf9; --fg:#1c1917; --muted:#57534e; --line:#e7e5e4;
+    --accent:#2563eb; --warn:#b91c1c; --warnbg:#fef2f2; --okbg:#f0fdf4; --ok:#15803d;
+    --card:#fff; --code:#f5f5f4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1c1917; --fg:#e7e5e4; --muted:#a8a29e; --line:#292524;
+      --card:#262320; --code:#1a1816; --warnbg:#2a1414; --okbg:#13241a; }
+  }
+  *{box-sizing:border-box}
+  body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); margin:0; padding:0 1rem;}
+  .wrap{max-width:980px; margin:0 auto; padding:2.5rem 0 5rem;}
+  h1{font-size:1.9rem; line-height:1.2; margin:0 0 .3rem;}
+  h2{font-size:1.35rem; margin:2.6rem 0 .8rem; padding-top:.6rem; border-top:1px solid var(--line);}
+  h3{font-size:1.05rem; margin:1.6rem 0 .4rem;}
+  .sub{color:var(--muted); margin:0 0 1.5rem;}
+  p{margin:.5rem 0;}
+  code{background:var(--code); padding:.1em .35em; border-radius:4px; font-size:.86em;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;}
+  pre{background:var(--code); border:1px solid var(--line); border-radius:8px; padding:.8rem 1rem;
+    overflow-x:auto; font-size:.82rem; line-height:1.5;}
+  pre code{background:none; padding:0;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:1rem 1.2rem; margin:1rem 0;}
+  .mermaid{background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:1rem; margin:1rem 0; overflow-x:auto;}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; margin:1rem 0;}
+  th,td{border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top;}
+  th{background:var(--code);}
+  .yes{color:var(--ok); font-weight:600;}
+  .no{color:var(--warn); font-weight:600;}
+  .part{color:#b45309; font-weight:600;}
+  .tag{display:inline-block; font-size:.72rem; font-weight:700; padding:.1rem .5rem;
+    border-radius:999px; vertical-align:middle;}
+  .tag.hi{background:var(--warnbg); color:var(--warn); border:1px solid var(--warn);}
+  .tag.md{background:#fffbeb; color:#b45309; border:1px solid #f59e0b;}
+  .tag.lo{background:var(--okbg); color:var(--ok); border:1px solid var(--ok);}
+  .rec{border-left:4px solid var(--accent); padding:.2rem 0 .2rem 1rem; margin:1.1rem 0;}
+  .rec.hi{border-color:var(--warn);}
+  .rec h3{margin:.1rem 0 .3rem;}
+  .legend{font-size:.82rem; color:var(--muted);}
+  footer{margin-top:3rem; color:var(--muted); font-size:.8rem; border-top:1px solid var(--line); padding-top:1rem;}
+  ul{margin:.4rem 0 .4rem 0; padding-left:1.2rem;} li{margin:.25rem 0;}
+  .q{font-weight:600; color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Backlog.md — Datei-Modell, Verbindungen &amp; Knowledge-Vergleich</h1>
+<p class="sub">Vollständige Landkarte aller Datei-/Entity-Typen, ihrer Verbindungen (Dependencies, Subtasks, Milestones, References, Documentation), und wie Decisions/Documents entstehen. Plus: Eignung als <strong>eine Quelle für Task- <em>und</em> Knowledge-Management pro Repo</strong> — verglichen mit dem aktuellen <code>knowledge/</code>-Ansatz. &nbsp;Quelle: <code>opensrc MrLesk/Backlog.md</code> (main, Stand 2026-06-04).</p>
+
+<div class="card">
+  <strong>TL;DR.</strong> Backlog verwaltet vier Entity-Typen (<code>task</code>, <code>draft</code>, <code>document</code>, <code>decision</code>) plus <code>milestone</code> als reine Markdown-Dateien unter <code>backlog/</code>. <strong>Tasks &amp; Documents</strong> haben volle CRUD-Tooling (CLI + MCP + Web). <strong>Decisions</strong> sind ADRs mit Tooling-Lücke: CLI legt nur ein leeres Skelett an, Inhalt füllst du im File oder Web-Browser. <strong>„Eine Quelle pro Repo" ist machbar</strong> — weil alles plain-Markdown im Git ist (grep-/qmd-bar, kein Lock-in). Aber: deine <code>lektion-*.md</code> (Lessons-Learned, evidenzlastig) und interaktive <code>*.html</code> (Mermaid) passen <strong>nicht</strong> in das ADR-Genre <code>decision</code> — die gehören in <code>doc</code> bzw. bleiben Files. Empfehlung unten: <strong>Hybrid</strong>.
+</div>
+
+<h2>1. Datei- &amp; Ordner-Modell</h2>
+<p>Alles liegt unter <code>backlog/</code> im Repo-Root. Jede Entity = eine Markdown-Datei mit YAML-Frontmatter + Body. Dateiname: <code>&lt;prefix&gt;-&lt;id&gt; - &lt;Titel-mit-Bindestrichen&gt;.md</code>.</p>
+
+<pre><code>backlog/
+├── config.yml              # Projekt-Config (statuses, labels, DoD-Defaults, prefixes, mcp …)
+├── tasks/                  # task-&lt;id&gt; - &lt;titel&gt;.md         (aktive Tasks)
+├── drafts/                 # draft-&lt;id&gt; - &lt;titel&gt;.md        (Ideen, nicht im Board)
+├── completed/              # task-&lt;id&gt; - …                  (auto-verschoben bei Done, optional)
+├── docs/                   # doc-&lt;id&gt; - &lt;titel&gt;.md          (readme|guide|specification|other)
+├── decisions/              # decision-&lt;id&gt; - &lt;titel&gt;.md     (ADRs: proposed→accepted→…)
+├── milestones/             # m-&lt;id&gt; - &lt;slug&gt;.md             (Single Source of Truth)
+├── archive/
+│   ├── tasks/   ├── drafts/   └── milestones/             (archiviert, aus Board raus)
+└── assets/images/          # Bilder für ![](assets/…) in Tasks/Docs</code></pre>
+
+<table>
+<thead><tr><th>Ordner</th><th>Entity</th><th>ID-Schema</th><th>Zweck</th></tr></thead>
+<tbody>
+<tr><td><code>tasks/</code></td><td>Task</td><td><code>task-42</code>, Subtask <code>task-42.01</code></td><td>Arbeitspakete, 1 PR each</td></tr>
+<tr><td><code>drafts/</code></td><td>Draft</td><td><code>draft-7</code></td><td>Roh-Ideen; via <code>promote</code> → Task</td></tr>
+<tr><td><code>docs/</code></td><td>Document</td><td><code>doc-001</code></td><td>Langlebige Referenz (Guides, Specs, Standards)</td></tr>
+<tr><td><code>decisions/</code></td><td>Decision</td><td><code>decision-1</code></td><td>ADR: warum X gewählt wurde</td></tr>
+<tr><td><code>milestones/</code></td><td>Milestone</td><td><code>m-6</code></td><td>Gruppierungs-/Fortschritts-Bucket</td></tr>
+</tbody>
+</table>
+<p class="legend">Die ID-Prefixes (<code>task</code>) sind in <code>config.yml &gt; prefixes</code> anpassbar (z.B. <code>CCS-</code>). Zero-Padding optional. <code>completed/</code> wird genutzt, wenn Tasks bei Done dorthin verschoben werden statt im <code>tasks/</code>-Ordner zu bleiben.</p>
+
+<h2>2. Verbindungen zwischen Entities</h2>
+<p>Fünf Beziehungstypen verdrahten die Dateien. Alle außer „Search-Index" sind Frontmatter-Felder am Task.</p>
+
+<div class="mermaid">
+graph TD
+  M["Milestone m-6<br/>(milestones/)"]
+  T1["Task task-42<br/>(tasks/)"]
+  T2["Task task-43"]
+  ST["Subtask task-42.01<br/>parent_task_id: task-42"]
+  D["Document doc-3<br/>(docs/)"]
+  DEC["Decision decision-1<br/>(decisions/)"]
+  CODE["src/api.ts<br/>(Code / URL / Issue)"]
+
+  T1 -- "milestone:" --> M
+  T2 -- "milestone:" --> M
+  T2 -- "dependencies: [task-42]" --> T1
+  ST -- "parent_task_id" --> T1
+  T1 -- "documentation: [doc-3]" --> D
+  T1 -- "references: [src/api.ts]" --> CODE
+  T1 -. "modifiedFiles (tracked)" .-> CODE
+  DEC -. "manuell im Body referenziert" .-> T1
+
+  classDef ms fill:#eef2ff,stroke:#6366f1;
+  classDef doc fill:#f0fdf4,stroke:#15803d;
+  classDef dec fill:#fef2f2,stroke:#b91c1c;
+  class M ms; class D doc; class DEC dec;
+</div>
+
+<table>
+<thead><tr><th>Verbindung</th><th>Feld</th><th>Richtung / Form</th><th>Wirkung</th></tr></thead>
+<tbody>
+<tr><td><b>Dependency</b></td><td><code>dependencies: [task-x]</code></td><td>Task → Task (DAG)</td><td>Treibt <code>backlog sequence</code> (parallele Ausführungs-Lanes) + Board-Reihenfolge</td></tr>
+<tr><td><b>Subtask</b></td><td><code>parent_task_id</code> / <code>subtasks[]</code></td><td>Task ↔ Task (Hierarchie)</td><td>Dezimal-ID (<code>task-42.01</code>); zeigt Eltern/Kind-Summaries</td></tr>
+<tr><td><b>Milestone</b></td><td><code>milestone: m-6</code></td><td>Task → Milestone</td><td>Gruppiert Tasks; Board-Swimlanes; Fortschritt <code>n/m done</code></td></tr>
+<tr><td><b>References</b></td><td><code>references: [...]</code></td><td>Task → beliebig</td><td>Code-Pfade, URLs, GitHub-Issues — Kontext zum Lesen vor Implementierung</td></tr>
+<tr><td><b>Documentation</b></td><td><code>documentation: [doc-3]</code></td><td>Task → Document</td><td>Verknüpft Design-Docs/Specs mit dem Task</td></tr>
+<tr><td><b>modifiedFiles</b></td><td><code>modifiedFiles: [...]</code></td><td>Task → Code</td><td>Welche Dateien der Task verändert hat (Suche via <code>--modified-file</code>)</td></tr>
+<tr><td><b>Search-Index</b></td><td>—</td><td>task ∪ document ∪ decision</td><td><code>backlog search</code> indiziert alle drei Typen gemeinsam</td></tr>
+</tbody>
+</table>
+<p class="legend"><b>Wichtig:</b> Decisions und Documents haben <em>keine</em> Frontmatter-Rückverlinkung auf Tasks. Ein Task verlinkt auf ein <code>doc</code> (<code>documentation:</code>); eine <code>decision</code> wird nur durch Fließtext im Body referenziert (z.B. „task-344 added MCP milestone management"). Es gibt also keinen harten Graph Decision↔Task.</p>
+
+<h2>3. Anatomie jeder Datei (Frontmatter)</h2>
+
+<h3>Task</h3>
+<pre><code>---
+id: CCS-42
+title: Add GraphQL resolver
+status: To Do            # aus config.statuses
+assignee: ['@me']
+created_date: '2026-06-04 19:29'
+updated_date: '2026-06-04 20:53'
+labels: [backend, api]
+milestone: m-6           # optional
+dependencies: [CCS-40]   # optional
+references: [src/api.ts, https://github.com/org/repo/issues/7]
+documentation: [doc-3]
+priority: medium         # high|medium|low
+ordinal: 20000           # Board-Sortierung
+parent_task_id: CCS-40   # nur bei Subtasks
+---
+## Description        &lt;!-- SECTION:DESCRIPTION:BEGIN/END --&gt;
+## Implementation Plan
+## Acceptance Criteria &lt;!-- AC:BEGIN/END --&gt;  (- [ ] #1 …)
+## Definition of Done  &lt;!-- DOD:BEGIN/END --&gt;
+## Implementation Notes
+## Final Summary</code></pre>
+
+<h3>Decision (ADR)</h3>
+<pre><code>---
+id: decision-1
+title: Use Tailwind CSS v4 for web UI development
+date: '2025-06-22'
+status: proposed       # proposed | accepted | rejected | superseded
+---
+## Context        (welches Problem, welcher Zwang?)
+## Decision       (was wir tun — fett, konkret)
+## Consequences   (Positive / Negative / Mitigation)
+## Alternatives   (optional)
+## References      (optional)</code></pre>
+
+<h3>Document</h3>
+<pre><code>---
+id: doc-001
+title: Testing Style Guide
+type: guide            # readme | guide | specification | other
+created_date: '2025-07-21'
+tags: [testing]        # optional
+---
+# Freier Markdown-Body (Guides, Specs, Standards …)</code></pre>
+
+<h3>Milestone</h3>
+<pre><code>---
+id: m-6
+title: "New Milestones UI"
+---
+## Description</code></pre>
+
+<h2>4. Wie kommt jede Entity „rein"? (CRUD-Matrix)</h2>
+<p>Das ist der Kern deiner Frage. Die Tooling-Abdeckung ist <strong>stark asymmetrisch</strong>.</p>
+
+<table>
+<thead><tr><th>Entity</th><th>CLI</th><th>MCP</th><th>Web-Browser</th><th>Datei direkt</th></tr></thead>
+<tbody>
+<tr><td><b>Task</b></td><td class="yes">full CRUD<br/><span class="legend">create/edit/view/list/archive/demote</span></td><td class="yes">full</td><td class="yes">full</td><td class="no">read-only (nie editieren)</td></tr>
+<tr><td><b>Draft</b></td><td class="yes">create/list/view/archive/promote</td><td class="part">teilweise</td><td class="yes">ja</td><td class="no">read-only</td></tr>
+<tr><td><b>Document</b></td><td class="yes">create/update/list/view</td><td class="yes">list/view/create/update/search</td><td class="yes">full</td><td class="part">via API bevorzugt</td></tr>
+<tr><td><b>Decision</b></td><td class="no">nur <code>create</code> (leeres Skelett!)</td><td class="no">keine Tools</td><td class="yes">create + <span class="part">update content</span></td><td class="yes">Body manuell editieren</td></tr>
+<tr><td><b>Milestone</b></td><td class="part">nur <code>list</code> / <code>archive</code></td><td class="yes">list/add/rename/remove/archive</td><td class="yes">full (add/edit/rename/del)</td><td class="yes">Datei = SoT</td></tr>
+</tbody>
+</table>
+
+<h3 class="q">→ Antwort: Wie kommen Decisions rein?</h3>
+<div class="card">
+<pre><code># 1. Skelett anlegen (CLI) — füllt NUR id/title/date/status
+backlog decision create "Submodule auflösen statt Git-Submodul"
+#   → erzeugt decisions/decision-N - … .md mit status: proposed
+#     und LEEREN Feldern context/decision/consequences
+
+# 2. Inhalt füllen — KEIN `backlog decision edit` vorhanden!
+#    Variante A: Markdown-Datei direkt editieren (Body unter ## Context etc.)
+#    Variante B: `backlog browser` öffnen → Decision-Seite → bearbeiten
+#                (server: updateDecisionFromContent)
+
+# 3. Status pflegen (proposed→accepted/rejected/superseded):
+#    ebenfalls nur per Datei-Edit oder Web-UI</code></pre>
+<p>Heißt konkret: Decisions sind im Tooling <strong>am dünnsten</strong> ausgestattet. Kein <code>edit</code> in der CLI, keine MCP-Tools. Für einen agentengetriebenen Flow ist das eine echte Reibung — der Agent muss die Datei selbst schreiben (was laut deiner Repo-Regel „nie Task-Files direkt editieren" nur für <em>Tasks</em> gilt; für Decisions ist Datei-Edit der vorgesehene Weg).</p>
+</div>
+
+<h3 class="q">→ Wie kommen Documents rein?</h3>
+<pre><code>backlog doc create "API Guidelines" -t guide -p guides/setup
+backlog doc update doc-1 --content "..." --tags setup,runbook
+backlog doc view doc-1   #   backlog doc list</code></pre>
+<p>Documents haben — anders als Decisions — <strong>volles</strong> CRUD über CLI <em>und</em> MCP <em>und</em> Web. Genau deshalb sind sie der bessere Kandidat für „evolvierendes Wissen" (siehe §6).</p>
+
+<h2>5. Vergleich: Backlog vs. dein aktueller <code>knowledge/</code>-Ansatz</h2>
+<p>Dein heutiges System (aus <code>knowledge/README.md</code>):</p>
+<ul>
+  <li><code>lektion-&lt;thema&gt;.md</code> — Lessons-Learned aus Session-Analyse (evidenzlastig: Token-Tabellen, Fehlerzahlen, Code-Refs).</li>
+  <li><code>standardisiertes-vorgehen-fuer-&lt;thema&gt;.md</code> — „How we do X"-Guides.</li>
+  <li><code>*.html</code> — visuelle Analysen mit Live-Mermaid-Diagrammen.</li>
+  <li>Referenziert aus <code>CLAUDE.md</code> via einzeiligen „Knowledge Index" (on-demand geladen, bläht nicht jeden Turn).</li>
+  <li>„Decision-Changelog" = ad-hoc, kein dediziertes Format.</li>
+</ul>
+
+<table>
+<thead><tr><th>Dimension</th><th>knowledge/ (heute)</th><th>backlog decisions</th><th>backlog docs</th></tr></thead>
+<tbody>
+<tr><td>Genre</td><td>Lessons + Guides + Visuals (gemischt)</td><td>ADR (Punkt-in-Zeit-Entscheidung)</td><td>Langlebige Referenz/Guide</td></tr>
+<tr><td>Struktur erzwungen</td><td class="no">frei (nur Template)</td><td class="yes">Context/Decision/Consequences</td><td class="part">frei + Typ-Tag</td></tr>
+<tr><td>Status-Lifecycle</td><td class="no">nein</td><td class="yes">proposed→accepted→…→superseded</td><td class="no">nein</td></tr>
+<tr><td>Nummerierung/IDs</td><td class="no">Slug-basiert</td><td class="yes">decision-N (auto)</td><td class="yes">doc-N (auto)</td></tr>
+<tr><td>Volltext-Suche</td><td class="part">grep / qmd</td><td class="yes">backlog search + grep + qmd</td><td class="yes">backlog search + grep + qmd</td></tr>
+<tr><td>Web-UI-Ansicht</td><td class="no">nein</td><td class="yes">ja (Browser)</td><td class="yes">ja (Browser)</td></tr>
+<tr><td>Agent-CRUD</td><td class="yes">Write-Tool</td><td class="no">create-only, sonst File</td><td class="yes">CLI + MCP</td></tr>
+<tr><td>Live-HTML / Mermaid</td><td class="yes">ja (eigenes HTML)</td><td class="no">nur MD-Render</td><td class="part">MD-Render (kein arbiträres HTML)</td></tr>
+<tr><td>CLAUDE.md on-demand-Load</td><td class="yes">etabliertes Muster</td><td class="part">via <code>backlog … view</code></td><td class="part">via <code>backlog doc view</code></td></tr>
+<tr><td>Plain-File / kein Lock-in</td><td class="yes">ja</td><td class="yes">ja (MD im Git)</td><td class="yes">ja (MD im Git)</td></tr>
+</tbody>
+</table>
+
+<div class="card">
+<strong>Der entscheidende Punkt:</strong> Backlog-<code>decisions</code> sind <em>ADRs</em>, kein Lessons-Learned-Format. Eine ADR sagt „wir haben X statt Y gewählt, weil Z, mit diesen Konsequenzen" — <strong>vorausschauend, punkt-in-zeit, append-only</strong> (superseded statt gelöscht). Deine <code>lektion-*.md</code> sagen „dieser Fehler trat N× auf, hier Muster + Fix" — <strong>rückblickend, evidenzbasiert, evolvierend</strong>. Das sind <span class="no">verschiedene Genres</span>. Lessons-Learned in <code>decision</code> zu zwängen verbiegt beide.
+</div>
+
+<h2>6. Empfehlung: „Eine Quelle pro Repo" — ja, aber als Hybrid</h2>
+<p>„Eine Quelle für Task- <em>und</em> Knowledge-Management pro Repo via Backlog" ist <strong>technisch sauber machbar</strong>, weil Backlog-Docs/Decisions nur Markdown-Dateien im Git sind — grep-/qmd-indexierbar, kein Lock-in. Der einzige reale Kostenfaktor ist eine <em>doppelte Taxonomie</em> (<code>knowledge/</code> vs. <code>backlog/docs/</code>), wenn man beides parallel führt. Daher: nach Genre zuordnen, nicht pauschal migrieren.</p>
+
+<div class="rec">
+<h3>① ADRs → <code>backlog decision</code></h3>
+<p>Echte „wir haben X entschieden"-Records. Gewinnt Nummerierung, Status-Lifecycle, Web-UI, gemeinsame Suche. <span class="tag lo">empfohlen</span> Ersetzt deinen ad-hoc „Decision-Changelog" sauber. Reibung: Body per File/Web füllen (kein CLI-edit).</p>
+</div>
+<div class="rec">
+<h3>② How-we-do-X-Guides → <code>backlog doc</code> (type: guide)</h3>
+<p>Deine <code>standardisiertes-vorgehen-fuer-*.md</code> passen 1:1. Volles CRUD über CLI+MCP, evolvierbar, im Browser sichtbar, durchsuchbar. <span class="tag lo">empfohlen</span></p>
+</div>
+<div class="rec hi">
+<h3>③ Lessons-Learned (<code>lektion-*.md</code>) → <code>knowledge/</code> behalten <em>oder</em> <code>backlog doc</code></h3>
+<p>Passen <strong>nicht</strong> in <code>decision</code> (Genre-Mismatch). Zwei valide Wege: (a) als <code>backlog doc</code> (type: other/guide) führen, wenn du <em>alles</em> im Web-Browser und in <code>backlog search</code> willst — Docs sind editierbar/evolvierend, was Lessons brauchen. (b) In <code>knowledge/</code> belassen, wenn dir das CLAUDE.md-„on-demand-Load"-Muster wichtiger ist als die Web-UI. <span class="tag md">deine Wahl</span></p>
+</div>
+<div class="rec hi">
+<h3>④ Interaktive HTML/Mermaid-Analysen → bleiben Files</h3>
+<p>Backlog rendert nur Markdown, kein arbiträres HTML mit Live-Mermaid. Diese Datei selbst (und <code>session-lifecycle-hooks-analyse.html</code>) gehören weiter in <code>knowledge/</code> oder als statische Artefakte. Alternativ Mermaid als <code>```mermaid</code>-Codeblock in ein <code>doc</code> — wenn die Web-UI Mermaid rendert (nicht garantiert, vorher prüfen). <span class="tag hi">nicht migrierbar</span></p>
+</div>
+
+<h3>Tradeoff in einem Satz</h3>
+<table>
+<thead><tr><th>Option</th><th>Vorteil</th><th>Kosten</th></tr></thead>
+<tbody>
+<tr><td><b>Voll konsolidieren</b> (alles in backlog)</td><td>1 Web-UI, 1 Suche, 1 Mentalmodell, IDs+Status</td><td>HTML/Mermaid verlieren, CLAUDE.md-Muster umbauen, Decision-Edit klobig</td></tr>
+<tr><td><b>knowledge/ getrennt lassen</b></td><td>HTML funktioniert, CLAUDE.md-Muster bleibt</td><td>zwei Systeme, keine vereinte Suche/Web-UI</td></tr>
+<tr><td class="yes"><b>Hybrid (empfohlen)</b></td><td>ADRs+Guides in backlog (Suche/Web/Status); Lessons+Visuals bleiben Files</td><td>klare Genre-Grenze nötig (1 Regel in CLAUDE.md)</td></tr>
+</tbody>
+</table>
+
+<div class="card">
+<strong>Konkreter nächster Schritt (klein, reversibel):</strong> Eine Pilot-Decision anlegen für die bereits getroffene Entscheidung „Submodule auflösen → Flat-Install" (CCS-005), Body per File füllen, mit <code>backlog browser</code> ansehen. Dann entscheiden, ob sich das ADR-Format für dich gut anfühlt, bevor du <code>knowledge/</code> umbaust.
+<pre><code>backlog decision create "cc-plugin-project-context: Submodule auflösen, Flat-Install"
+# danach: decisions/decision-N öffnen, Context/Decision/Consequences füllen
+backlog browser   # → Decisions-Tab prüfen</code></pre>
+</div>
+
+<footer>
+Erstellt via <code>opensrc MrLesk/Backlog.md</code> (main). Datenmodell: <code>src/types/index.ts</code> · CLI: <code>src/cli.ts</code> · Web-Server: <code>src/server/index.ts</code> · MCP-Tools: <code>src/mcp/tools/*</code>. Stand 2026-06-04.
+</footer>
+
+</div>
+</body>
+</html>

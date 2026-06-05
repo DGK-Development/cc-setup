@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# bundle.sh — pull submodules, assemble dist/cc-setup plugin for @skills-dir install.
+# bundle.sh — assemble the cc-setup install tree from the flat repo sources.
+#
+# Usage:
+#   bash scripts/bundle.sh [OUT]
+#
+# OUT defaults to $ROOT/dist/cc-setup for ad-hoc debug inspection. deploy.sh
+# calls this with an ephemeral temp dir so dist/ is never persisted by a deploy.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENDOR_CTX="$ROOT/vendor/cc-plugin-project-context"
 VENDOR_REDACTOR="$ROOT/vendor/hook-redactor"
-OUT="$ROOT/dist/cc-setup"
-TEMPLATES="$ROOT/templates"
+OUT="${1:-$ROOT/dist/cc-setup}"
 
 die() { echo "bundle: $*" >&2; exit 1; }
 
-echo "==> submodule update (pull latest)"
-git -C "$ROOT" submodule update --init --remote
-
-[[ -d "$VENDOR_CTX" ]] || die "missing $VENDOR_CTX — run: git submodule update --init"
 [[ -d "$VENDOR_REDACTOR" ]] || die "missing $VENDOR_REDACTOR — run: git submodule update --init"
 
 if ! command -v redactor >/dev/null 2>&1; then
@@ -28,36 +28,61 @@ fi
 
 echo "==> clean $OUT"
 rm -rf "$OUT"
-mkdir -p "$OUT/.claude-plugin"
+mkdir -p "$OUT"
 
-echo "==> copy cc-plugin-project-context assets"
-for dir in hooks skills commands scripts; do
-  if [[ -d "$VENDOR_CTX/$dir" ]]; then
+echo "==> copy project-context assets (repo-local)"
+# hooks + commands: vollständig repo-lokal kopieren.
+for dir in hooks commands; do
+  if [[ -d "$ROOT/$dir" ]]; then
     rsync -a --exclude '__pycache__' --exclude '*.pyc' \
-      "$VENDOR_CTX/$dir/" "$OUT/$dir/"
+      "$ROOT/$dir/" "$OUT/$dir/"
   fi
 done
 
-echo "==> plugin manifest + docs"
-cp "$TEMPLATES/.claude-plugin/plugin.json" "$OUT/.claude-plugin/plugin.json"
+# scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, deploy.sh, …).
+mkdir -p "$OUT/scripts"
+RUNTIME_SCRIPTS=(
+  context-resolve.py
+  sprint_bridge.py
+  qmd-ensure.sh
+  wiki-tier-extract.py
+  nightly-reindex.sh
+  lib.sh
+  tasknotes_cli.py
+  context-deps.sh
+)
+for f in "${RUNTIME_SCRIPTS[@]}"; do
+  if [[ -f "$ROOT/scripts/$f" ]]; then
+    cp "$ROOT/scripts/$f" "$OUT/scripts/$f"
+  fi
+done
+
+echo "==> docs + contract"
 mkdir -p "$OUT/bootstrap"
-cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CLAUDE.md"
+cp "$ROOT/CONTRACT.md" "$OUT/bootstrap/CLAUDE.md"
 # Slim contract (no redactor appendix) — source for the global ~/.claude/CLAUDE.md.
-cp "$TEMPLATES/CLAUDE.md" "$OUT/bootstrap/CONTRACT.md"
-if [[ -d "$TEMPLATES/agents" ]]; then
-  rsync -a "$TEMPLATES/agents/" "$OUT/agents/"
+cp "$ROOT/CONTRACT.md" "$OUT/bootstrap/CONTRACT.md"
+if [[ -d "$ROOT/agents" ]]; then
+  rsync -a "$ROOT/agents/" "$OUT/agents/"
 fi
-echo "==> copy bundled template skills (cc-setup, local-ci, …)"
-if [[ -d "$TEMPLATES/skills" ]]; then
-  rsync -a "$TEMPLATES/skills/" "$OUT/skills/"
+echo "==> copy bundled skills (cc-setup, local-ci, context-load, …)"
+if [[ -d "$ROOT/skills" ]]; then
+  rsync -a "$ROOT/skills/" "$OUT/skills/"
 fi
-if [[ -f "$TEMPLATES/settings.json" ]]; then
-  cp "$TEMPLATES/settings.json" "$OUT/settings.json"
+
+echo "==> bundle audit script (single source of truth: scripts/session_analyze.py)"
+if [[ -f "$ROOT/scripts/session_analyze.py" ]]; then
+  mkdir -p "$OUT/skills/audit/scripts"
+  cp "$ROOT/scripts/session_analyze.py" "$OUT/skills/audit/scripts/session_analyze.py"
+fi
+
+if [[ -f "$ROOT/settings.json" ]]; then
+  cp "$ROOT/settings.json" "$OUT/settings.json"
 fi
 
 echo "==> merge hooks (project-context + redactor)"
-python3 "$ROOT/scripts/merge_hooks.py" \
-  "$VENDOR_CTX/hooks/hooks.json" \
+uv run python3 "$ROOT/scripts/merge_hooks.py" \
+  "$ROOT/hooks/hooks.json" \
   "$OUT/hooks/hooks.json" \
   merged
 
@@ -96,11 +121,5 @@ else
   echo "warn: redactor still not on PATH — hooks require redactor binary at runtime"
 fi
 
-if command -v claude >/dev/null 2>&1; then
-  echo "==> claude plugin validate"
-  claude plugin validate "$OUT" || echo "warn: plugin validate reported issues (check manually)"
-fi
-
 echo "==> done: $OUT"
-echo "    install: rsync -a --delete dist/cc-setup/ ~/.claude/skills/cc-setup/"
-echo "    or:      just install"
+echo "    install: just deploy   (deploys skills/agents/scripts/hooks flat into ~/.claude/)"

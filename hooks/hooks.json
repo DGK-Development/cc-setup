@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "OBSIDIAN_VAULT_PATH=\"${user_config.obsidian_vault_path}\" bash \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-project-context.sh\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "OBSIDIAN_VAULT_PATH=\"${user_config.obsidian_vault_path}\" bash \"${CLAUDE_PLUGIN_ROOT}/hooks/userprompt-context-match.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
