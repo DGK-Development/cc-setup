@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import {
   countOpenTasks,
   discoverProjectsIn,
+  parseTnProjects,
   projectMilestones,
 } from "../src/collectors/sidebar.ts";
 import { join } from "@std/path";
@@ -47,6 +48,23 @@ Deno.test("countOpenTasks counts non-Done task files", async () => {
 Deno.test("countOpenTasks returns 0 without a backlog dir", async () => {
   const repo = await Deno.makeTempDir();
   assertEquals(await countOpenTasks(repo), 0);
+});
+
+Deno.test("parseTnProjects: {count,projects}, comma + ~ working_dirs, skips no-working_dir", () => {
+  const home = Deno.env.get("HOME") ?? "/tmp";
+  const json = JSON.stringify({
+    count: 3,
+    projects: [
+      { name: "DAM X", kunde: "DSM", working_dir: null, tasks: 6 }, // no working_dir → skipped
+      { name: "cc-setup", working_dir: "~/GITHUB_DG/cc-setup,~/git/cc-setup", tasks: 7 },
+      { name: "inspire", working_dir: "/abs/GITHUB/inspire-ios/", tasks: 4 },
+    ],
+  });
+  const m = parseTnProjects(json);
+  assertEquals(m.get(home + "/GITHUB_DG/cc-setup"), 7); // first of comma list, ~ expanded
+  assertEquals(m.get(home + "/git/cc-setup"), 7); // second of comma list
+  assertEquals(m.get("/abs/GITHUB/inspire-ios"), 4); // trailing / trimmed
+  assertEquals(m.has("null"), false);
 });
 
 Deno.test("projectMilestones groups tasks by milestone with done/total", async () => {

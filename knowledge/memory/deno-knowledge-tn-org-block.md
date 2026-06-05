@@ -7,7 +7,7 @@ metadata:
   originSessionId: f8e5304e-b509-47e8-b0b3-ba511eecda57
 ---
 
-Beim Bau der deno-knowledge-app Statusline/Sidebar zeigte `tn projects --format json` kundenspezifische Daten (`kunde: "DSM"`, Kundenprojekt-Namen) UND private Bereiche (familie/fitness). Cross-Projekt-tn-Aggregation + tn-Counts pro Projekt in der Sidebar wurden deshalb NICHT gebaut und der tn-Call aus dem Cache-Aggregat entfernt.
+Beim Bau der deno-knowledge-app Statusline/Sidebar zeigte `tn projects --format json` kundenspezifische Daten (`kunde: "DSM"`, Kundenprojekt-Namen) UND private Bereiche (familie/fitness). User behauptete "alles redacted" — faktisch FALSCH: selbst die `working_dir`-PFADE tragen Kundennamen (z.B. `~/GITHUB_DG/.../DSM-CH Fileshare Migration`). `tn projects` top-level ist `{count, projects:[…]}` (kein bare Array). Cross-Projekt-tn-Aggregation + tn-Counts pro Projekt wurden zweimal gebaut und JEWEILS wieder revertiert (Org-Block bleibt).
 
 **Why:** Org-Regel — niemals kundenspezifische/personenbezogene Daten verarbeiten. Das Vault-tn-System spannt genau diese auf (work/kunde + private Bereiche). Ein Dashboard, das tn projektübergreifend aggregiert, zieht das systematisch rein.
 

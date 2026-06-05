@@ -332,7 +332,9 @@ const SIDEBAR_CSS = `
 export async function renderPage(
   opts: RenderOptions & {
     context?: Record<string, unknown>;
-    sidebar?: Array<{ name: string; path: string; open_tasks: number; cost_7d: number }>;
+    sidebar?: Array<
+      { name: string; path: string; open_tasks: number; cost_7d: number; tn?: number }
+    >;
     active?: string;
     view?: "overview" | "project";
     generatedAt?: string;
@@ -367,7 +369,7 @@ export async function renderPage(
     const q = encodeURIComponent(p.name);
     return `<a class="kn-proj${cls}" href="/?project=${q}" title="${escape(p.path)}">` +
       `<span class="kn-proj-n">${escape(p.name)}</span>` +
-      `<span class="kn-proj-s"><b>${p.open_tasks}</b> offen · ${
+      `<span class="kn-proj-s"><b>${p.open_tasks}</b> offen · <b>${p.tn ?? 0}</b> tn · ${
         escape(fmtCost(p.cost_7d))
       }</span>` +
       "</a>";
@@ -375,11 +377,12 @@ export async function renderPage(
   const sidebarHtml = '<aside class="kn-projects" id="kn-projects">' + ovEntry +
     '<div class="kn-proj-h">Projekte</div>' + projRows + "</aside>";
 
-  // Cross-project statusline (eine Zeile, umbricht bei wenig Platz). Bewusst NUR
-  // Repo-Backlog (Dev-Tasks) + Token-Kosten — KEIN tn (Vault-tn spannt Kunden-/
-  // Privatprojekte auf → Org-Regel verbietet das Verarbeiten).
+  // Cross-project statusline (eine Zeile, umbricht bei wenig Platz): Repo-Backlog
+  // + Token-Kosten + tn-Task-ZAHLEN pro Repo (nur Count via working_dir-Match,
+  // keine Inhalte/kunde-Felder — siehe parseTnProjects).
   const sumOpen = sb.reduce((s, p) => s + p.open_tasks, 0);
   const sumCost = sb.reduce((s, p) => s + p.cost_7d, 0);
+  const sumTn = sb.reduce((s, p) => s + (p.tn ?? 0), 0);
   const stand = escape(
     opts.generatedAt ?? String((data.meta as Record<string, unknown>)?.generated_at ?? ""),
   );
@@ -387,6 +390,7 @@ export async function renderPage(
   const statusline = '<div class="kn-status">' +
     `<span><b>${sb.length}</b> Projekte</span>` +
     `<span><b>${sumOpen}</b> offene Backlog-Tasks</span>` +
+    `<span><b>${sumTn}</b> tn-Tasks</span>` +
     `<span>≈${escape(fmtCost(sumCost))} / 7 Tage</span>` +
     `<span class="kn-status-2">Stand ${stand}</span>` +
     loadingSeg +

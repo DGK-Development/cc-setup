@@ -10,13 +10,14 @@ Deno.test("renderPage shows cross-project statusline + Überblick entry", async 
     cwd: "/tmp",
     view: "overview",
     sidebar: [
-      { name: "a", path: "/a", open_tasks: 3, cost_7d: 1.5 },
-      { name: "b", path: "/b", open_tasks: 2, cost_7d: 0.5 },
+      { name: "a", path: "/a", open_tasks: 3, cost_7d: 1.5, tn: 4 },
+      { name: "b", path: "/b", open_tasks: 2, cost_7d: 0.5, tn: 1 },
     ],
     generatedAt: "2026-06-05 20:00",
   });
   assertStringIncludes(html, "kn-status");
   assertStringIncludes(html, "<b>5</b> offene Backlog-Tasks"); // 3 + 2 summed cross-project
+  assertStringIncludes(html, "<b>5</b> tn-Tasks"); // 4 + 1 summed cross-project
   assertStringIncludes(html, "Überblick");
 });
 
