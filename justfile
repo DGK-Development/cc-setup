@@ -44,6 +44,15 @@ install-vault vault="$HOME/GITHUB/ObsidianPKM":
 overview port="8765":
     uv run --script scripts/knowledge.py --cwd . --port {{port}}
 
+# Deno-Rewrite (CCS-018) mit Live-Reload (--watch): reagiert auf Datei-Aenderungen
+deno port="8765":
+    @echo "knowledge (deno) → http://127.0.0.1:{{port}}/  · Live-Reload via --watch"
+    cd deno-knowledge-app && deno task dev --cwd .. --port {{port}} --no-open
+
+# Deno-Tests (deno test)
+deno-test:
+    cd deno-knowledge-app && deno task test
+
 # Alle Test-Suites (repo-lokal in scripts/): sprint-bridge + session-analyse + waste + context-resolve + knowledge-dashboard.
 # knowledge.py braucht fastapi+httpx fuer den Route-Smoke-Test; das laeuft als python -m pytest in einer
 # Ad-hoc-uv-Umgebung (uv run --with pytest <…> pytest zieht pytest als isoliertes Tool ohne die --with-Extras).

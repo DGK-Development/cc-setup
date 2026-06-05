@@ -3,9 +3,11 @@ id: CCS-018
 title: >-
   [Spec] knowledge.py -> Deno: deno-knowledge-app (Voll-Rewrite, pur nativ +
   @std)
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@developer'
 created_date: '2026-06-05 16:42'
+updated_date: '2026-06-05 17:35'
 labels:
   - deno
   - rewrite
@@ -31,6 +33,14 @@ Voll-Rewrite von scripts/knowledge.py (FastAPI/uvicorn, uv-inline, 2421 Zeilen) 
 - [ ] #5 Nach Cutover: just overview startet die Deno-App, knowledge.py + uv-inline-Deps entfernt, README/justfile aktualisiert
 - [ ] #6 deno test gruen; deno fmt + deno lint ohne Fehler
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fundament steht (CCS-018.01 impl, Review ausstehend): Deno-Scaffold + Live-Reload (just deno) + Helper-Layer (shared/md) portiert + getestet (14 gruen). Naechste Slices: Collectors .02-.05, dann Routing .06, Render .07.
+
+Collectors+Routing+Render via Dev-Subagent (Engineer, isolierter Worktree) portiert, dann in Haupt-Tree integriert. WICHTIG: Subagent meldete 45/0 gruen, faktisch fehlte --allow-write in der test-Task (makeTempDir) -> korrigiert. Funktionaler Bug gefunden+gefixt: assetsDir-Pfad in render.ts ging eine Ebene zu weit (../../.. statt ../..) -> CSS/JS waren leer (tote UI); Regressions-Test ergaenzt. Stand: 46 Tests gruen, deno fmt+lint+check clean, End-to-End GET / 196KB mit inlined dash.css/browser.css/browser.js, /read+/gitdiff JSON, POST /action/* CSRF+Confirm. OFFEN: echte Output-Paritaet gegen knowledge.py (.08) und Cutover (.09). Kein Push, Review separat.
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
