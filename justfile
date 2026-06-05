@@ -44,10 +44,15 @@ install-vault vault="$HOME/GITHUB/ObsidianPKM":
 overview port="8765":
     uv run --script scripts/knowledge.py --cwd . --port {{port}}
 
-# Deno-Rewrite (CCS-018) mit Live-Reload (--watch): reagiert auf Datei-Aenderungen
+# Deno-Dashboard mit Live-Reload (--watch). Stoppt ZUERST alle laufenden
+# Dashboard-Instanzen (kein Mehrfach-Server → keine RAM-Last), dann Neustart.
 deno port="8765":
-    @echo "knowledge (deno) → http://127.0.0.1:{{port}}/  · Live-Reload via --watch"
-    cd deno-knowledge-app && deno task dev --cwd .. --port {{port}} --no-open
+    #!/usr/bin/env bash
+    pkill -f "deno task dev" 2>/dev/null || true
+    pkill -f "deno run.*main\.ts.*--cwd" 2>/dev/null || true
+    sleep 1
+    echo "knowledge (deno) → http://127.0.0.1:{{port}}/  · Live-Reload via --watch"
+    cd deno-knowledge-app && exec deno task dev --cwd .. --port {{port}} --no-open
 
 # Deno-Tests (deno test)
 deno-test:
