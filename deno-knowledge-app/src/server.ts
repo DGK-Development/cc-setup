@@ -78,7 +78,6 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
         sidebar,
         active: selected,
         view,
-        tn: agg?.tn,
         generatedAt: agg ? fmtMtime(agg.generated_at / 1000) : undefined,
         loading: !agg,
       });

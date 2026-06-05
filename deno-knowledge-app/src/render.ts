@@ -312,9 +312,11 @@ const SIDEBAR_CSS = `
 .kn-proj-s b{ color:#aab3bd; }
 .kn-title{ font-size:13px; font-weight:700; padding:0 6px; color:#aab3bd; }
 .kn-body .mp{ flex:1 1 auto; min-width:0; }
-.kn-status{ display:flex; flex-direction:column; gap:1px; padding:6px 14px; font-size:11.5px;
-  line-height:1.5; border-bottom:1px solid var(--line-2,#1c2229); color:#8a929c;
-  background:rgba(127,127,127,.04); }
+.kn-status{ display:flex; flex-wrap:wrap; align-items:baseline; column-gap:16px; row-gap:2px;
+  padding:6px 14px; font-size:11.5px; line-height:1.5;
+  border-bottom:1px solid var(--line-2,#1c2229); color:#8a929c; background:rgba(127,127,127,.04); }
+.kn-status > span{ position:relative; }
+.kn-status > span + span::before{ content:"·"; position:absolute; left:-10px; color:#3a414a; }
 .kn-status b{ color:#d7dee5; }
 .kn-status .kn-status-2{ color:#6c7682; }
 .kn-status .kn-loading{ color:oklch(0.83 0.13 80); }
@@ -333,7 +335,6 @@ export async function renderPage(
     sidebar?: Array<{ name: string; path: string; open_tasks: number; cost_7d: number }>;
     active?: string;
     view?: "overview" | "project";
-    tn?: { next: number; blocked: number };
     generatedAt?: string;
     loading?: boolean;
   },
@@ -374,19 +375,21 @@ export async function renderPage(
   const sidebarHtml = '<aside class="kn-projects" id="kn-projects">' + ovEntry +
     '<div class="kn-proj-h">Projekte</div>' + projRows + "</aside>";
 
-  // Cross-project statusline (≤2 Zeilen), gespeist aus dem Cache-Aggregat.
+  // Cross-project statusline (eine Zeile, umbricht bei wenig Platz). Bewusst NUR
+  // Repo-Backlog (Dev-Tasks) + Token-Kosten — KEIN tn (Vault-tn spannt Kunden-/
+  // Privatprojekte auf → Org-Regel verbietet das Verarbeiten).
   const sumOpen = sb.reduce((s, p) => s + p.open_tasks, 0);
   const sumCost = sb.reduce((s, p) => s + p.cost_7d, 0);
-  const tn = opts.tn ?? { next: 0, blocked: 0 };
   const stand = escape(
     opts.generatedAt ?? String((data.meta as Record<string, unknown>)?.generated_at ?? ""),
   );
-  const loadingMark = opts.loading ? ' · <span class="kn-loading">Daten laden…</span>' : "";
+  const loadingSeg = opts.loading ? '<span class="kn-loading">Daten laden…</span>' : "";
   const statusline = '<div class="kn-status">' +
-    `<span><b>${sb.length}</b> Projekte · <b>${sumOpen}</b> offene Backlog-Tasks · ≈${
-      escape(fmtCost(sumCost))
-    } / 7 Tage</span>` +
-    `<span class="kn-status-2">tn: <b>${tn.next}</b> next · <b>${tn.blocked}</b> blocked · Stand ${stand}${loadingMark}</span>` +
+    `<span><b>${sb.length}</b> Projekte</span>` +
+    `<span><b>${sumOpen}</b> offene Backlog-Tasks</span>` +
+    `<span>≈${escape(fmtCost(sumCost))} / 7 Tage</span>` +
+    `<span class="kn-status-2">Stand ${stand}</span>` +
+    loadingSeg +
     "</div>";
   const titleLabel = view === "overview"
     ? "Überblick · alle Projekte"
