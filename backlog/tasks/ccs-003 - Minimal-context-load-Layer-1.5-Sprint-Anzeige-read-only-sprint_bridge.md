@@ -1,11 +1,11 @@
 ---
 id: CCS-003
 title: 'Minimal: context-load Layer 1.5 Sprint-Anzeige + read-only sprint_bridge'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-06-03 22:29'
-updated_date: '2026-06-04 20:58'
+updated_date: '2026-06-05 20:56'
 labels: []
 dependencies: []
 references:

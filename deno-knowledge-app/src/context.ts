@@ -269,19 +269,28 @@ export function buildData(
     ...doneTasks.map((t) => taskItem(t, "Done", true)),
   ];
 
-  // tn items
+  // tn items (col → kanban column: next | blocked | overdue)
   const tnItems = [
     ...(tnc.next as Array<Record<string, unknown>> ?? []).map((t) => ({
       name: t.title,
       status: String(t.status ?? "action"),
       desc: String(t.next_action ?? ""),
       project: t.project,
+      col: "next",
     })),
     ...(tnc.blocked as Array<Record<string, unknown>> ?? []).map((t) => ({
       name: t.title,
       status: "blocked",
       desc: "",
       project: t.project,
+      col: "blocked",
+    })),
+    ...(tnc.overdue as Array<Record<string, unknown>> ?? []).map((t) => ({
+      name: t.title,
+      status: "overdue",
+      desc: String(t.scheduled ?? ""),
+      project: t.project,
+      col: "overdue",
     })),
   ];
 
@@ -429,7 +438,7 @@ export function buildData(
       g: "Backlog",
       items: [
         { id: "backlog", label: "Tasks", dot: "a" },
-        { id: "tn", label: "tn next/blocked", dot: "c" },
+        { id: "tn", label: "tn next/blocked/overdue", dot: "c" },
       ],
     },
     {

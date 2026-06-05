@@ -40,3 +40,6 @@
 {"command":"uv run --script /Users/niclasedge/claude niclasedge/plugins/cache/niclasedge-pkm/project-context/0.1...","count":1,"mode":"wrap","rule":"keyword","sample":"dammers","source":"wrap:uv","ts":"2026-06-05T22:30:41+02:00"}
 {"command":"/Users/niclasedge/GITHUB_DG/cc-setup","count":1,"mode":"session","rule":"session_start","sample":"","source":"session-start","ts":"2026-06-05T22:31:21+02:00"}
 {"command":"-","count":0,"mode":"json","rule":"json_leaves","sample":"leaves=0 list_truncated=0","source":"/Users/niclasedge/claude niclasedge/plugins/config.json","ts":"2026-06-05T22:34:01+02:00"}
+{"command":"-","count":14,"mode":"json","rule":"json_leaves","sample":"leaves=14 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/deno-knowledge-app/deno.json","ts":"2026-06-05T22:59:51+02:00"}
+{"command":"bash -c cd \"$HOME/GITHUB_DG/cc-setup/deno-knowledge-app\" && echo \"=== collectors_test: ruft es echte...","count":1,"mode":"wrap","rule":"email","sample":"t@t.com","source":"wrap:bash","ts":"2026-06-05T23:01:09+02:00"}
+{"command":"bash -c cd \"$HOME/GITHUB_DG/cc-setup/deno-knowledge-app\" && echo \"=== collectors_test: ruft es echte...","count":1,"mode":"wrap","rule":"email","sample":"t@t.com","source":"wrap:bash","ts":"2026-06-05T23:01:09+02:00"}

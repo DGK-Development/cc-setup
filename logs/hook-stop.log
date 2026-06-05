@@ -1,6 +1,6 @@
-=== STOP HOOK 2026-06-05 22:41:51 ===
+=== STOP HOOK 2026-06-05 23:06:39 ===
 PROJECT: cc-setup
 CWD: /Users/niclasedge/GITHUB_DG/cc-setup
 IS_GIT_REPO: true
 
-Exit: debounce (342s < 900s)
+Exit: debounce (774s < 900s)

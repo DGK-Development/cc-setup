@@ -160,6 +160,14 @@
       renderBoard();
       return;
     }
+    if (id === "tn") {
+      mp.classList.remove("is-overview");
+      mp.classList.add("is-board");
+      state.coll = "tn";
+      state.idx = 0;
+      renderTnBoard();
+      return;
+    }
     if (id === "git") { mp.classList.remove("is-overview"); state.coll = null; renderGit(); return; }
     if (SPECIAL[id]) {
       mp.classList.add("is-overview");
@@ -246,6 +254,47 @@
         }
       })
       .catch(function () { window.alert("Status-Wechsel fehlgeschlagen (Netzwerk)"); });
+  }
+
+  /* ---------- tn: read-only kanban (NEXT / BLOCKED / OVERDUE) ----------
+     Display only — tn tasks are the vault's domain; the dashboard never writes
+     them. Columns come from each item's `col` field set in buildData. */
+  var TN_COLS = [["next", "NEXT"], ["blocked", "BLOCKED"], ["overdue", "OVERDUE"]];
+
+  function renderTnBoard() {
+    var c = COLL["tn"];
+    list.innerHTML = "";
+    detail.innerHTML = "";
+    if (!c) return;
+    var head = el(
+      '<div class="kn-board-head"><b>' + esc(c.title) + '</b>' +
+        '<span class="lc">' + c.items.length + "</span></div>",
+    );
+    detail.appendChild(head);
+    var board = el('<div class="kn-board"></div>');
+    TN_COLS.forEach(function (pair) {
+      var key = pair[0], label = pair[1];
+      var items = c.items.filter(function (it) { return it.col === key; });
+      var col = el(
+        '<div class="kn-col" data-col="' + key + '">' +
+          '<div class="kn-col-h">' + label + ' <span class="kn-col-c">' + items.length + "</span></div>" +
+          '<div class="kn-col-body"></div></div>',
+      );
+      var body = col.querySelector(".kn-col-body");
+      if (!items.length) {
+        body.appendChild(el('<div class="kn-col-empty">—</div>'));
+      }
+      items.forEach(function (it) {
+        var tag = (key === "overdue" && it.desc)
+          ? '<div class="kn-card-ms">' + esc(it.desc) + "</div>"
+          : "";
+        body.appendChild(el(
+          '<div class="kn-card ro"><div class="kn-card-t">' + esc(it.name) + "</div>" + tag + "</div>",
+        ));
+      });
+      board.appendChild(col);
+    });
+    detail.appendChild(board);
   }
 
   function openTaskDetail(it) {

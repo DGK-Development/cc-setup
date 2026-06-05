@@ -352,6 +352,8 @@ const KANBAN_CSS = `
 .kn-card-id{ font-size:11px; color:oklch(0.83 0.11 215); font-weight:600; }
 .kn-card-t{ font-size:12.5px; margin-top:2px; line-height:1.35; }
 .kn-card-ms{ font-size:10.5px; color:var(--dim,#8a929c); margin-top:3px; }
+.kn-card.ro{ cursor:default; }
+.kn-col-empty{ padding:10px 12px; color:var(--faint,#6c7682); font-size:11px; }
 .kn-modal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center;
   justify-content:center; z-index:1000; }
 .kn-modal-box{ background:var(--panel,#0b0d10); border:1px solid var(--line-2,#1c2229);
