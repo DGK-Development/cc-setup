@@ -1,11 +1,15 @@
 ---
-id: doc-002
 title: cc-setup Architektur & Deployment
+slug: architektur-deployment
 type: guide
-created_date: '2026-06-05 07:51'
+created: '2026-06-05'
+tags: [architektur, deployment, hooks]
 ---
 
 # cc-setup — Architektur & Deployment
+
+> Verschoben aus `backlog/docs/doc-002` (decision-003: Wissen lebt in `knowledge/`).
+> Entscheidungs-Rationale: `knowledge/decisions.md` #002.
 
 ## Ziel des Repos
 

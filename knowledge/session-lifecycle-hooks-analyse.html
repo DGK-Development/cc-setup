@@ -80,8 +80,8 @@
 flowchart TD
   subgraph SRC["Wissensquellen — pro Repo"]
     direction LR
-    BL[("Backlog.md<br/>backlog/{tasks,decisions,docs}<br/>Repo-Tasks + ADR + Guides")]
-    KN[("knowledge/<br/>lektion-*.md · *.html<br/>Lessons + Visuals")]
+    BL[("Backlog.md<br/>backlog/tasks/<br/>Sprints · Milestones · Status")]
+    KN[("knowledge/<br/>decisions.md · lektion-*.md · *.html<br/>Entscheidungen · Lessons · Visuals")]
     TN[("Vault TaskNotes (tn)<br/>~/GITHUB/ObsidianPKM<br/>tasknotes_cli.py")]
     QM[("qmd Wiki + Repo<br/>BM25 + Vector + HyDE")]
   end
@@ -213,31 +213,33 @@ flowchart TD
 </table>
 <p><strong>Optimale Skills je Phase:</strong> Start → <code>context-load</code> (auto). Verstehen/Suchen → <code>qmd</code>, <code>recall</code>, <code>opensrc</code>. Bauen → <code>tdd</code>, <code>diagnose</code>, <code>karpathy-guidelines</code>. Doku/Wissen → <code>knowledge</code>, <code>doc-coauthoring</code>. Pre-Push → <code>local-ci</code>. Ende → <code>session-stop</code> (Stop-Hook-gestützt). Audit → <code>audit</code> (LOGS + CONFIG). Flat-Ziel: jeder Skill erscheint <strong>einmal</strong> in der Liste (kein <code>/cc-setup:*</code>-Doppel mehr).</p>
 
-<h2>5. Wissens-Architektur — Hybrid (decision-001)</h2>
-<p>Backlog wird <strong>nicht</strong> die einzige Wissensquelle. Drei Genres, drei Töpfe — die Wahl hängt davon ab, <em>was</em> der Inhalt ist:</p>
+<h2>5. Wissens-Architektur — 2 Töpfe (decision-003)</h2>
+<p>Backlog ist <strong>nur für Tasks</strong>. Alles Wissen lebt in <code>knowledge/</code>. Eine Regel statt drei Genres:</p>
 <div class="mermaid">
 flowchart TD
-  Q0{Neuer Wissens-Eintrag} --> Q1{"Eine Entscheidung?<br/>X statt Y, weil Z"}
-  Q1 -->|ja| D1["backlog decision · ADR<br/>backlog/decisions/<br/>append-only, Status-Lifecycle"]:::dec
-  Q1 -->|nein| Q2{"Wiederholbare Anleitung?<br/>So machen wir X"}
-  Q2 -->|ja| D2["backlog doc (type: guide)<br/>backlog/docs/<br/>CLI+MCP+Web editierbar"]:::doc
-  Q2 -->|nein| Q3{Lesson oder Visual?}
-  Q3 -->|Lesson| D3["knowledge/lektion-*.md<br/>evidenzlastig, evolvierend"]:::kn
-  Q3 -->|Visual/HTML| D4["knowledge/*.html<br/>Mermaid/interaktiv"]:::kn
-  classDef dec fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
-  classDef doc fill:#f0fdf4,stroke:#15803d,color:#14532d;
+  Q0{Neuer Eintrag} --> Q1{Ist es ein Task?}
+  Q1 -->|ja| B["backlog/tasks/<br/>Sprints · Milestones · Status"]:::task
+  Q1 -->|nein| K["knowledge/"]:::kn
+  K --> K1["decisions.md<br/>Entscheidungen · append-only"]
+  K --> K2["lektion-*.md<br/>Lessons-Learned"]
+  K --> K3["SLUG.md<br/>Guides · so machen wir X"]
+  K --> K4["*.html<br/>Visuals/Analysen"]
+  CMD["CLAUDE.md = nur Regeln + 1-Zeilen-Index"]:::min -. "on-demand lesen" .-> K
+  classDef task fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
   classDef kn fill:#fffbeb,stroke:#b45309,color:#7c2d12;
+  classDef min fill:#f0fdf4,stroke:#15803d,color:#14532d;
 </div>
 <table>
-<thead><tr><th>Frage</th><th>Genre</th><th>Topf</th><th>Tooling</th></tr></thead>
+<thead><tr><th>Inhalt</th><th>Topf</th><th>Tooling</th></tr></thead>
 <tbody>
-<tr><td>Warum haben wir X entschieden?</td><td>ADR</td><td><code>backlog/decisions/</code></td><td><code>backlog decision create</code> + Datei-/Web-Edit (kein CLI-<code>edit</code>)</td></tr>
-<tr><td>Wie machen wir X (Standard)?</td><td>Guide</td><td><code>backlog/docs/</code></td><td><code>backlog doc create/update</code> (CLI+MCP+Web)</td></tr>
-<tr><td>Welcher Fehler + Fix?</td><td>Lesson</td><td><code>knowledge/lektion-*.md</code></td><td>Write-Tool + CLAUDE.md-1-Zeilen-Index</td></tr>
-<tr><td>Visuelle Analyse?</td><td>Visual</td><td><code>knowledge/*.html</code></td><td>Write-Tool (Backlog rendert kein HTML)</td></tr>
+<tr><td>Task / Sprint</td><td><code>backlog/tasks/</code></td><td><code>backlog</code> CLI</td></tr>
+<tr><td>Entscheidung (ADR)</td><td><code>knowledge/decisions.md</code></td><td>Write-Tool, append-only (<code>## NNN — Titel</code>)</td></tr>
+<tr><td>Lesson</td><td><code>knowledge/lektion-*.md</code></td><td>Write-Tool</td></tr>
+<tr><td>Guide</td><td><code>knowledge/&lt;slug&gt;.md</code></td><td>Write-Tool</td></tr>
+<tr><td>Visual</td><td><code>knowledge/*.html</code></td><td>Write-Tool (Backlog rendert kein HTML)</td></tr>
 </tbody>
 </table>
-<p class="legend">Kein Lock-in: alle Töpfe sind Plain-Markdown/-HTML im Git → grep-/qmd-indexierbar. Grenzregel (eine Zeile in CLAUDE.md): <strong>ADR → <code>decision</code>, Guide → <code>doc</code>, Lesson/Visual → <code>knowledge/</code></strong>. Vollständige CRUD-Matrix: <code>README-backlog.html</code>.</p>
+<p class="legend">decision-003 löst den früheren Hybrid (decision-001: ADR→<code>backlog decision</code>, Guide→<code>backlog doc</code>) ab — Grund: drei Töpfe + fehlendes CLI-<code>edit</code> für Decisions waren zu komplex. Kein Lock-in: alles Plain-Markdown/-HTML im Git, grep-/qmd-indexierbar. Backlog-Capability-Referenz (historisch): <code>README-backlog.html</code>.</p>
 
 <h2>6. Globale <code>CLAUDE.md</code> — was bleibt, was wird Pfad-Referenz</h2>
 <p>Regel: <strong>Always-loaded</strong> (jeder Turn) nur Verhaltens-Leitplanken + Pointer. Detail wandert in Rule-Files (Skills, Specs, <code>knowledge/</code>) und kommt <strong>on-demand</strong>. Es gibt zwei Schichten in <code>~/.claude/CLAUDE.md</code>:</p>
@@ -259,9 +261,8 @@ flowchart TD
 <div class="mermaid">
 flowchart LR
   CMD["Repo CLAUDE.md<br/>nur Hard-Rules + 1-Zeilen-Index"]:::min
-  CMD -->|"on-demand"| K["knowledge/<br/>lektion-*.md · *.html"]
-  CMD -->|"on-demand"| DEC["backlog/decisions/ (ADR)"]
-  CMD -->|"on-demand"| DOC["backlog/docs/ (Guides)"]
+  CMD -->|"on-demand lesen"| K["knowledge/<br/>decisions.md · lektion-*.md · Guides · *.html"]
+  CMD -->|"Tasks"| BL["backlog/tasks/"]
   CMD -->|"context-load Layer 3 · qmd"| Q["semantischer Repo-Index"]
   classDef min fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
 </div>
@@ -318,8 +319,8 @@ flowchart TD
 </div>
 
 <div class="rec">
-  <h3><span class="tag lo">DONE/PILOT</span> S4 — Wissens-Hybrid ausrollen</h3>
-  <p>decision-001 + doc-001 sind in cc-setup pilotiert. <span class="tag done">erledigt</span> hier; nächster Schritt: dasselbe Genre-Schema in <strong>einem weiteren Repo</strong> anwenden (1 ADR + 1 Guide als Pilot), bevor Bestands-<code>knowledge/</code>-Inhalte migriert werden.</p>
+  <h3><span class="tag lo">DONE</span> S4 — Wissen in knowledge/ konsolidiert</h3>
+  <p>decision-003: Backlog nur Tasks, alles Wissen in <code>knowledge/</code> (<code>decisions.md</code> + <code>lektion-*</code> + <code>*.html</code>). <span class="tag done">erledigt</span> in cc-setup (decision-001/002 + doc-002 migriert, doc-001 obsolet). Nächster Schritt: gleiches Muster auf ein weiteres Repo übertragen.</p>
 </div>
 
 <div class="rec">
@@ -332,7 +333,7 @@ flowchart TD
 </div>
 
 <footer>
-Quellen: <code>decision-001</code> (Knowledge-Hybrid), <code>decision-002</code> (Flat-Install), <code>doc-001</code> (Wissens-Genres), <code>doc-002</code> (Architektur/Deployment), <code>knowledge/README.md</code>, <code>knowledge/skills.csv</code>, <code>CONTRACT.md</code>, Hook-Scripts (<code>inject-project-context.sh</code>, <code>userprompt-context-match.sh</code>, <code>stop-workflow.sh</code>, <code>pkm-sync-stop.sh</code>). Verwandt: <a href="README-backlog.html">README-backlog.html</a> (CRUD-Matrix). &nbsp;Analyse-Artefakt — Empfehlungen sind Vorschläge (Human-Oversight, nichts auto-appliziert).
+Quellen: <code>knowledge/decisions.md</code> (#001–003), <code>knowledge/architektur-deployment.md</code>, <code>knowledge/README.md</code>, <code>knowledge/skills.csv</code>, <code>CONTRACT.md</code>, Hook-Scripts (<code>inject-project-context.sh</code>, <code>userprompt-context-match.sh</code>, <code>stop-workflow.sh</code>, <code>pkm-sync-stop.sh</code>). Verwandt: <a href="README-backlog.html">README-backlog.html</a> (historische Backlog-Capability-Analyse). &nbsp;Analyse-Artefakt — Empfehlungen sind Vorschläge (Human-Oversight, nichts auto-appliziert).
 </footer>
 
 </div>

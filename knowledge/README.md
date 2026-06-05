@@ -1,61 +1,51 @@
-# knowledge/ — Distilled Project Lessons
+# knowledge/ — Single Knowledge Store
 
-This directory stores lessons derived from session analysis, code review, and
-retrospectives. It keeps CLAUDE.md slim: instead of inline prose, CLAUDE.md
-references this directory with a one-line entry.
+Dieser Ordner hält **alles Wissen** des Repos. Backlog ist **nur** für Tasks.
 
-## Purpose
+## Die eine Regel (decision-003)
 
-- Persist non-obvious patterns, decisions, and failure modes that are not obvious
-  from reading the code or git log.
-- Entries here survive across sessions and are loaded on demand, not automatically
-  — so they don't inflate every-turn context.
+> **Task? → `backlog`. Sonst → `knowledge/`.**
 
-## CLAUDE.md Reference Pattern
+Kein „decision vs doc vs knowledge"-Routing mehr. `CLAUDE.md` bleibt dünn (nur Regeln +
+1-Zeilen-Index) — Wissen wird **on-demand** aus diesem Ordner gelesen, nie inline in CLAUDE.md
+(das lädt jeden Turn).
 
-In CLAUDE.md (or a project CLAUDE.md), reference a knowledge file like this:
+## Was wohin
 
-```markdown
-## Knowledge Index
-- [Title](knowledge/<slug>.md) — one-line description of what the file covers.
-```
+| Inhalt | Datei |
+|---|---|
+| Entscheidung (ADR) | `decisions.md` — append-only, neueste oben (`## NNN — Titel`) |
+| Lektion / Lessons-Learned | `lektion-<thema>.md` |
+| Guide „so machen wir X" | `<slug>.md` (z.B. `architektur-deployment.md`) |
+| Visualisierung / Analyse | `*.html` (Backlog rendert kein HTML) |
 
-Rules:
-- One line per entry in CLAUDE.md. The description must fit in ~120 chars.
-- The description should answer "when do I need to read this?".
-- Full detail lives in the knowledge file, not in CLAUDE.md.
+## CLAUDE.md-Referenz-Pattern
 
-### Example entry
+Statt Volltext nur eine Zeile pro Wissensdatei:
 
 ```markdown
 ## Knowledge Index
-- [Redactor strict mode](knowledge/redactor-strict-mode.md) — every Bash call needs
-  `redactor wrap --`; inline reads use `redactor --type json <file>`.
+- [Title](knowledge/<slug>.md) — wann brauche ich das? (~120 Zeichen)
 ```
 
-## File Naming Convention
+## Naming
 
-`<slug>.md` where slug is kebab-case, descriptive, max 50 chars.
+kebab-case, max 50 Zeichen. `lektion-<thema>.md` für Lessons, `<thema>.md` für Guides,
+`decisions.md` für Entscheidungen.
 
-Prefer pattern `standardisiertes-vorgehen-fuer-<thema>.md` for "how we do X" guides.
-Use `lektion-<thema>.md` for lessons-learned entries derived from session analysis.
+## Neuer Eintrag
 
-## File Template
-
-See `knowledge/standardisiertes-vorgehen-fuer-x.md` for the canonical template.
-
-## How to Add a New Entry
-
-1. Copy the template: `cp knowledge/standardisiertes-vorgehen-fuer-x.md knowledge/<slug>.md`
-2. Fill in the frontmatter and body.
-3. Add a one-line reference to CLAUDE.md knowledge index (never full text).
-4. Commit both files together.
+- **Entscheidung** → neuen `## NNN — Titel` oben in `decisions.md` (Context/Decision/Consequences, knapp).
+- **Lektion/Guide** → neue Datei + 1-Zeilen-Index in CLAUDE.md.
+- **Visual** → `*.html` + Index-Zeile.
 
 ## Index
 
-*(auto-maintained — add a line here when you create a new knowledge file)*
-
-- [Template: standardisiertes Vorgehen](standardisiertes-vorgehen-fuer-x.md) — copy this to create a new "how we do X" knowledge file.
-- [Lektion: Redactor Top-3-Fehler](lektion-redactor-strict-mode-haeufigste-fehlerquelle.md) — wrap vergessen, JSON via wrap statt --type json, CLAUDE_PLUGIN_ROOT undefiniert. Belegt durch Session-Analyse 2026-06-03.
-- [Session-Lifecycle, Wissens-Architektur & Zielbild (HTML)](session-lifecycle-hooks-analyse.html) — Ist-Lifecycle (flat, post-Migration): SessionStart/UserPromptSubmit/Stop-Hooks, Backlog-primär vs. Vault-tn-on-demand, Skills auto vs. manuell. Plus Wissens-Hybrid (decision-001) und Zielbild: globale + repo-CLAUDE.md minimal halten, Detail via Rule-File-Pfad on-demand. Schritte S0–S5 als Vorschläge.
-- [Backlog.md: Datei-Modell, Verbindungen & Knowledge-Vergleich (HTML)](README-backlog.html) — alle Entity-Typen (task/draft/doc/decision/milestone), Verbindungen (deps/subtasks/milestone/references/documentation), CRUD-Matrix (Decisions = nur create-Skelett, kein CLI-edit), Vergleich mit knowledge/-Ansatz + Hybrid-Empfehlung.
+- **Live-Übersicht:** `just overview` startet den Terminal-3-Pane-Status-Browser (`scripts/knowledge.py`, FastAPI/localhost, dark) — Nav→Liste→Detail über Global · Projekt · Git · Wissen · Backlog · Usage; Git-Detail mit gated Actions (commit/push/merge/delete). Design-Assets: `scripts/knowledge_assets/`.
+- [Decisions](decisions.md) — alle Architektur-/Design-Entscheidungen (003 Konsolidierung, 002 Flat-Install, 001 superseded).
+- [Architektur & Deployment](architektur-deployment.md) — Repo-Layout, `just deploy` (2 Phasen), Hook-Runtime-Verhalten, Dependencies.
+- [Lektion: Redactor Top-3-Fehler](lektion-redactor-strict-mode-haeufigste-fehlerquelle.md) — wrap vergessen, JSON via wrap statt `--type json`, `CLAUDE_PLUGIN_ROOT` undefiniert.
+- [Session-Lifecycle, Wissens-Architektur & Zielbild (HTML)](session-lifecycle-hooks-analyse.html) — Lifecycle/Hooks/Skills (Backlog-primär vs. tn-on-demand) + 2-Töpfe-Wissensmodell + CLAUDE.md-Slimming-Zielbild.
+- [Backlog Datei-Modell (HTML)](README-backlog.html) — historische Capability-Analyse von Backlog (Entity-Typen, CRUD-Matrix); Referenz, nicht mehr Empfehlung.
+- [Template: standardisiertes Vorgehen](standardisiertes-vorgehen-fuer-x.md) — Kopiervorlage für einen „so machen wir X"-Guide.
+- `skills.csv` — Skill-Inventar (Quelle, Trigger, Funktionsumfang, cc-setup-Tier-1).

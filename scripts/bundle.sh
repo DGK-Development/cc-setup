@@ -40,6 +40,10 @@ for dir in hooks commands; do
 done
 
 # scripts: NUR Runtime-Scripts (Whitelist) — keine Build-Scripts (bundle.sh, deploy.sh, …).
+# Bewusst NICHT in der Whitelist: knowledge.py (Single-Pane-Dashboard). Es ist ein
+# Developer-Tool fuer die Arbeit *am* Repo (`just overview`), kein Runtime-Asset fuer
+# das deployte ~/.claude. Es zieht zudem fastapi/uvicorn als schwere Deps und haengt von
+# Sibling-Scripts ab, die teils nicht deployed werden. Aus dem Repo heraus genutzt, nicht aus ~/.claude.
 mkdir -p "$OUT/scripts"
 RUNTIME_SCRIPTS=(
   context-resolve.py
