@@ -20,8 +20,10 @@ VAULT_PATH="$(resolve_vault)"
 GITHUB_PATH="${GITHUB_PATH:-$HOME/GITHUB}"
 PROJECT_DIR="$(pwd)"
 
-# Log setup — overwrite each session, only if logs/ dir is creatable
-LOG_FILE="$PROJECT_DIR/logs/hook-session-start.log"
+# Log setup — overwrite each session, only if logs/ dir is creatable.
+# CC_HOOK_LOG_FILE overrides the target (dashboard sets /dev/null so the canonical
+# session log is never clobbered by an on-demand /hook-inject run).
+LOG_FILE="${CC_HOOK_LOG_FILE:-$PROJECT_DIR/logs/hook-session-start.log}"
 if mkdir -p "$PROJECT_DIR/logs" 2>/dev/null; then
     exec > >(tee "$LOG_FILE") 2>&1
 fi

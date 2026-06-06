@@ -34,6 +34,31 @@ async function knowledgeIndex(repo: string): Promise<KnowledgeEntry[]> {
   return entries;
 }
 
+// Hooks: sum of all hook entries across settings.json + settings.local.json
+function countHooksInSettings(text: string): number {
+  try {
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    const hooks = (raw.hooks ?? {}) as Record<string, unknown>;
+    let n = 0;
+    if (typeof hooks === "object") {
+      for (const matchers of Object.values(hooks)) {
+        if (!Array.isArray(matchers)) continue;
+        for (const matcher of matchers) {
+          if (!matcher || typeof matcher !== "object") continue;
+          const inner = (matcher as Record<string, unknown>).hooks;
+          if (!Array.isArray(inner)) continue;
+          for (const h of inner) {
+            if (h && typeof h === "object") n++;
+          }
+        }
+      }
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 export async function collectProject(cwd: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
@@ -62,6 +87,42 @@ export async function collectProject(cwd: string): Promise<Record<string, unknow
     }
 
     data.knowledge_index = await knowledgeIndex(repo);
+
+    // Projekt-lokale .claude/ settings: skills count, agents count, hooks count
+    const projClaudeDir = join(repo, ".claude");
+
+    // Skills: subdirectories in .claude/skills/
+    let projSkillsCount = 0;
+    try {
+      const skillsDir = join(projClaudeDir, "skills");
+      for await (const e of Deno.readDir(skillsDir)) {
+        if (e.isDirectory) projSkillsCount++;
+      }
+    } catch { /* no skills dir → 0 */ }
+    data.proj_skills_count = projSkillsCount;
+
+    // Agents: *.md files in .claude/agents/
+    let projAgentsCount = 0;
+    try {
+      const agentsDir = join(projClaudeDir, "agents");
+      for await (const e of Deno.readDir(agentsDir)) {
+        if (e.isFile && e.name.endsWith(".md")) projAgentsCount++;
+      }
+    } catch { /* no agents dir → 0 */ }
+    data.proj_agents_count = projAgentsCount;
+
+    // Hooks: sum of all hook entries across settings.json + settings.local.json
+    let projHooksCount = 0;
+    try {
+      const settingsText = await readText(join(projClaudeDir, "settings.json"));
+      if (settingsText) projHooksCount += countHooksInSettings(settingsText);
+    } catch { /* ok */ }
+    try {
+      const settingsLocalText = await readText(join(projClaudeDir, "settings.local.json"));
+      if (settingsLocalText) projHooksCount += countHooksInSettings(settingsLocalText);
+    } catch { /* ok */ }
+    data.proj_hooks_count = projHooksCount;
+
     return data;
   } catch (exc) {
     return { available: false, reason: `collect_project failed: ${exc}` };

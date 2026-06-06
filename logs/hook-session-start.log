@@ -1,3 +1,14 @@
-=== SESSION START HOOK 2026-06-05 22:31:21 ===
+=== SESSION START HOOK 2026-06-06 16:04:16 ===
 CWD: /Users/niclasedge/GITHUB_DG/cc-setup
+Vault: /Users/niclasedge/GITHUB/ObsidianPKM
+
+=== Backlog-Stand (PRIMÄR — Backlog.md ist die Arbeits-Quelle) ===
+In Progress:
+  [HIGH] CCS-030 - deno-knowledge-app: Wissen-Listen Datum+Sort, tn-Board in Projekt-Ansicht, Boards-Nav-Counts, Projekt-Settings-Karte
+  [MEDIUM] CCS-010 - Externe Stop-Sub-Hooks vendoren oder sauber degradieren (cleanup-dispatch-stop + sync-sessions-to-vault)
+  CCS-031 - deno-knowledge-app: Kontext-View pro Projekt (statischer Initial-Kontext, /context-Style, ausklappbar)
+
+Nächste To-Dos:
+  [LOW] CCS-011 - Verwaiste Legacy-Scripts aufraeumen (prompt-sync, prompt-vault-setup)
+  CCS-032 - deno-knowledge-app: frontmatterField bricht bei CRLF-Zeilenenden (md.ts) -> leere description
 

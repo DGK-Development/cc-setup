@@ -2,7 +2,7 @@ import { escape } from "@std/html/entities";
 import { buildData, fmtCost } from "./context.ts";
 import { repoRoot } from "./collectors/project.ts";
 import { readText } from "./shared.ts";
-import { estTokens } from "./md.ts";
+import { estTokens, fmtMtime } from "./md.ts";
 import { join } from "@std/path";
 
 export interface RenderOptions {
@@ -143,9 +143,21 @@ export async function readDoc(
         break;
       }
       case "taskfile": {
+        if (!/^[A-Za-z0-9._\- ]+\.md$/.test(name)) {
+          return { ok: false, error: "ungültiger Task-Dateiname" };
+        }
         const tasksRoot = join(await repoRoot(cwd), "backlog", "tasks");
         fpath = join(tasksRoot, name);
         if (!under(fpath, tasksRoot)) return { ok: false, error: "Pfad ausserhalb backlog/tasks" };
+        break;
+      }
+      case "docfile": {
+        if (!/^[A-Za-z0-9._\- ]+\.md$/.test(name)) {
+          return { ok: false, error: "ungültiger Doc-Dateiname" };
+        }
+        const docsRoot = join(await repoRoot(cwd), "backlog", "docs");
+        fpath = join(docsRoot, name);
+        if (!under(fpath, docsRoot)) return { ok: false, error: "Pfad ausserhalb backlog/docs" };
         break;
       }
       default:
@@ -155,8 +167,11 @@ export async function readDoc(
     const text = await readText(fpath);
     if (text === null) return { ok: false, error: `nicht gefunden: ${fpath.split("/").pop()}` };
     let size = 0;
+    let mtime: string | null = null;
     try {
-      size = (await Deno.stat(fpath)).size;
+      const st = await Deno.stat(fpath);
+      size = st.size;
+      mtime = fmtMtime(st.mtime ? st.mtime.getTime() / 1000 : null);
     } catch { /* ok */ }
     return {
       ok: true,
@@ -165,6 +180,7 @@ export async function readDoc(
       path,
       tokens: estTokens(text),
       size,
+      mtime,
       truncated: text.length > READ_MAX_CHARS,
       content: text.slice(0, READ_MAX_CHARS),
     };
@@ -297,37 +313,192 @@ const EXTRA_CSS = `
 // renderPage — full single-page HTML, browser.js-compatible DOM
 // ---------------------------------------------------------------------------
 
+// Header CSS — one slim bar replaces the old kn-status + kn-tabs pair
+const HEADER_CSS = `
+.hd{
+  display:flex; align-items:center; gap:14px;
+  padding:9px 14px; border-bottom:1px solid var(--line-2);
+  background:linear-gradient(var(--panel-2),var(--panel));
+  flex:none;
+}
+.hd .lights{ display:flex; gap:7px; }
+.hd .lights i{ width:11px; height:11px; border-radius:50%; display:block; }
+.hd .lights i:nth-child(1){ background:#ff5f57; }
+.hd .lights i:nth-child(2){ background:#febc2e; }
+.hd .lights i:nth-child(3){ background:#28c840; }
+.crumb{ display:flex; align-items:baseline; gap:8px; font-size:12.5px; min-width:0; }
+.crumb .root{ color:var(--green); font-weight:700; }
+.crumb .sep{ color:var(--faint); }
+.crumb .here{ color:var(--fg); font-weight:600; }
+.crumb .scope{ color:var(--dim); }
+.hd .sp{ flex:1; }
+.stats{ display:flex; align-items:stretch; gap:0; }
+.stat{ display:flex; flex-direction:column; gap:2px; padding:0 14px; border-left:1px solid var(--line); }
+.stat:first-child{ border-left:0; }
+.stat .sv{ font-size:13px; font-weight:700; color:var(--fg); line-height:1; font-variant-numeric:tabular-nums; }
+.stat .sv.g{ color:var(--green); } .stat .sv.a{ color:var(--amber); } .stat .sv.c{ color:var(--cyan); }
+.stat .sl{ font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+.hd .asof{ font-size:10.5px; color:var(--faint); white-space:nowrap; }
+.hd .tg{
+  flex:none; font:inherit; font-size:13px; line-height:1;
+  background:var(--panel-3); color:var(--fg-2); border:1px solid var(--line-2);
+  border-radius:6px; padding:4px 9px; cursor:pointer;
+}
+.hd .tg:hover{ color:var(--fg); border-color:var(--line-3); }
+`;
+
 const SIDEBAR_CSS = `
 .kn-body{ display:flex; align-items:stretch; flex:1 1 auto; min-height:0; }
-.kn-projects{ width:232px; flex:0 0 232px; overflow:auto; border-right:1px solid var(--line-2,#1c2229);
-  padding:8px 0; }
-.kn-proj-h{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#6c7682;
-  padding:8px 14px 6px; }
-.kn-proj{ display:flex; flex-direction:column; gap:2px; padding:7px 14px; text-decoration:none;
-  color:inherit; border-left:2px solid transparent; }
-.kn-proj:hover{ background:rgba(127,127,127,.10); }
-.kn-proj.is-active{ background:rgba(127,127,127,.16); border-left-color:oklch(0.83 0.11 215); }
-.kn-proj-n{ font-size:13px; font-weight:600; }
-.kn-proj-s{ font-size:11px; color:#8a929c; }
-.kn-proj-s b{ color:#aab3bd; }
-.kn-title{ font-size:13px; font-weight:700; padding:0 6px; color:#aab3bd; }
+.pane-side{
+  width:236px; flex:0 0 236px; overflow:auto;
+  border-right:1px solid var(--line-2); background:var(--bg-grid);
+}
+.pane-side::-webkit-scrollbar{ width:9px; }
+.pane-side::-webkit-scrollbar-thumb{ background:var(--line-2); border-radius:5px;
+  border:2px solid transparent; background-clip:padding-box; }
+.pane-side::-webkit-scrollbar-thumb:hover{ background:var(--line-3); }
 .kn-body .mp{ flex:1 1 auto; min-width:0; }
-.kn-status{ display:flex; flex-wrap:wrap; align-items:baseline; column-gap:16px; row-gap:2px;
-  padding:6px 14px; font-size:11.5px; line-height:1.5;
-  border-bottom:1px solid var(--line-2,#1c2229); color:#8a929c; background:rgba(127,127,127,.04); }
-.kn-status > span{ position:relative; }
-.kn-status > span + span::before{ content:"·"; position:absolute; left:-10px; color:#3a414a; }
-.kn-status b{ color:#d7dee5; }
-.kn-status .kn-status-2{ color:#6c7682; }
-.kn-status .kn-loading{ color:oklch(0.83 0.13 80); }
-.kn-proj-ov{ border-bottom:1px solid var(--line-2,#1c2229); margin-bottom:4px; padding-bottom:9px; }
-.kn-proj-ov .kn-proj-n{ color:oklch(0.83 0.11 215); }
-@media (prefers-color-scheme: light){
-  .kn-projects{ border-right-color:#ccd0da; }
-  .kn-proj-s{ color:#6c6f85; } .kn-proj-s b{ color:#4c4f69; } .kn-title{ color:#4c4f69; }
-  .kn-status{ border-bottom-color:#ccd0da; color:#6c6f85; } .kn-status b{ color:#4c4f69; }
-  .kn-proj-ov{ border-bottom-color:#ccd0da; }
-}`;
+/* zero-noise project list */
+.proj-list{ padding:2px 0 14px; }
+.proj-list-hd{
+  font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim);
+  padding:10px 14px 4px; font-weight:700;
+}
+.proj-ov{
+  display:flex; align-items:center; gap:8px;
+  padding:7px 14px; margin:0 6px; border-radius:7px; cursor:pointer;
+  text-decoration:none; color:var(--dim); font-size:11.5px;
+  transition:background .1s;
+}
+.proj-ov::before{ content:"←"; font-size:10px; color:var(--faint); }
+.proj-ov:hover{ background:var(--panel-2); color:var(--fg-2); }
+.proj-i{
+  display:grid; grid-template-columns:auto 1fr auto; align-items:baseline; gap:5px;
+  padding:6px 14px; margin:0 6px; border-radius:7px; cursor:pointer; transition:background .1s;
+  text-decoration:none; color:inherit;
+}
+.proj-i:hover{ background:var(--panel-2); }
+.proj-i.is-active{ background:var(--panel-3); box-shadow:inset 2px 0 0 var(--cyan); }
+.proj-i .pn{ font-size:12px; color:var(--fg-2); word-break:break-word; }
+.proj-i:hover .pn, .proj-i.is-active .pn{ color:var(--fg); }
+.proj-chips{ display:flex; gap:7px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.proj-chips .ch{ font-size:10px; color:var(--faint); }
+.proj-chips .ch.open{ color:var(--amber); }
+.proj-chips .ch.tn{ color:var(--cyan); }
+.proj-chips .ch.cost{ color:var(--dim); }
+.proj-i.muted .pn{ color:var(--dim); }
+.proj-more{ font-size:10.5px; color:var(--faint); padding:4px 18px; }
+.proj-more b{ color:var(--cyan); cursor:pointer; }
+.proj-more b:hover{ text-decoration:underline; }
+/* Accordion: chevron glyph + sub-nav for active project */
+.proj-chev{
+  font-size:9px; color:var(--faint); flex:none; width:12px; text-align:center;
+  transition:transform .15s;
+}
+.proj-i.is-active .proj-chev{ color:var(--cyan); }
+.proj-sub{
+  background:var(--inset); overflow:hidden;
+  border-bottom:1px solid var(--line-2);
+}
+/* Accordion variant: sub-nav follows an active project row → indented + left border */
+.proj-i.is-active + .proj-sub{
+  border-left:2px solid var(--line-2);
+  margin:2px 6px 4px 14px; border-radius:0 6px 6px 0;
+  border-bottom:0;
+}
+.proj-sub #mp-nav .nav-g{
+  font-size:8.5px; padding:8px 10px 3px; letter-spacing:.1em;
+}
+.proj-sub #mp-nav .nav-i{
+  padding:5px 10px; margin:0 4px; font-size:11.5px;
+}
+`;
+
+// Project overview page CSS (renderProjectOverview in browser.js)
+const PROJECT_CSS = `
+.ovwrap{ padding:0; }
+.ovbar{
+  display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+  padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+  position:sticky; top:0; z-index:2;
+}
+.ovbar h2{ font-size:14px; font-weight:700; margin:0; color:var(--fg); letter-spacing:.02em; }
+.ovbar h2 b{ color:var(--green); }
+.ovbar .dc{ color:var(--faint); font-size:11.5px; }
+.ovbar .hint{ margin-left:auto; color:var(--dim); font-size:10.5px; }
+.ovbar .hint b{ color:var(--cyan); font-weight:600; }
+.ovbar .branch{ font-size:10.5px; color:var(--dim); }
+.ovbar .branch code{ color:var(--green); }
+.ov-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  border-bottom:1px solid var(--line); background:var(--panel); }
+.ov-kpi{ padding:14px 16px; border-right:1px solid var(--line); }
+.ov-kpi:last-child{ border-right:0; }
+.ov-kpi .k-l{ font-size:9px; letter-spacing:.13em; color:var(--dim); text-transform:uppercase;
+  display:flex; gap:6px; align-items:center; margin-bottom:8px; }
+.ov-kpi .k-v{ font-size:26px; font-weight:700; line-height:1; letter-spacing:-.01em;
+  color:var(--fg); font-variant-numeric:tabular-nums; }
+.ov-kpi .k-v small{ font-size:12px; font-weight:500; color:var(--dim); }
+.ov-kpi .k-s{ font-size:10px; color:var(--fg-2); margin-top:7px; }
+.ov-kpi.g .k-v{ color:var(--green); } .ov-kpi.a .k-v{ color:var(--amber); }
+.ov-kpi.c .k-v{ color:var(--cyan); } .ov-kpi.m .k-v{ color:var(--mag); }
+.tload{ display:grid; gap:10px; }
+.tload .row{ display:grid; grid-template-columns:108px 1fr 70px; align-items:center; gap:12px; }
+.tload .tl{ font-size:11px; color:var(--fg-2); }
+.tload .tl small{ color:var(--faint); font-size:10px; }
+.tload .track{ height:10px; background:var(--inset); border:1px solid var(--line); border-radius:3px; overflow:hidden; }
+.tload .track > i{ display:block; height:100%; border-radius:2px; }
+.tload .tv{ font-size:11.5px; color:var(--fg); font-variant-numeric:tabular-nums; text-align:right; }
+.tload .tv small{ color:var(--faint); font-size:9px; }
+.tload-foot{ margin-top:12px; padding-top:11px; border-top:1px dotted var(--line);
+  display:flex; justify-content:space-between; font-size:11.5px; }
+.tload-foot .tf-l{ color:var(--dim); }
+.tload-foot .tf-v{ color:var(--cyan); font-weight:700; font-variant-numeric:tabular-nums; }
+.prow{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:baseline;
+  padding:6px 0; border-bottom:1px dotted var(--line); font-size:12px; }
+.prow:last-child{ border-bottom:0; }
+.prow .pl{ color:var(--fg-2); word-break:break-word; }
+.prow .pl b{ color:var(--fg); font-weight:600; }
+.prow .pr{ color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap; font-size:11px; }
+.prow .pr.g{ color:var(--green); } .prow .pr.a{ color:var(--amber); } .prow .pr.c{ color:var(--cyan); }
+.ico{ display:inline-flex; flex:none; }
+.st-todo{ color:var(--faint); } .st-wip{ color:var(--fg-2); }
+.st-done{ color:var(--green); }
+.ms{ padding:11px 0; border-bottom:1px solid var(--line); }
+.ms:last-child{ border-bottom:0; }
+.ms-head{ display:flex; align-items:center; gap:10px; }
+.ms-t{ font-size:13.5px; font-weight:600; color:var(--fg); line-height:1.45; letter-spacing:.005em; }
+.ms-done .ms-t{ color:var(--dim); text-decoration:line-through; text-decoration-color:var(--line-3); }
+.ms-count{ margin-left:auto; flex:none; font-size:10.5px; color:var(--faint);
+  font-variant-numeric:tabular-nums; white-space:nowrap; }
+.ms-done .ms-count{ color:var(--green); }
+.ms-sub{ margin:8px 0 2px 7px; padding-left:17px; border-left:1px solid var(--line); display:grid; gap:2px; }
+.sub{ display:flex; align-items:center; gap:10px; padding:5px 0; }
+.sub .t{ font-size:12.5px; color:var(--fg-2); line-height:1.55; letter-spacing:.005em; }
+.sub-done .t{ color:var(--faint); text-decoration:line-through; text-decoration-color:var(--line-2); }
+.tn-sec{ margin-bottom:14px; }
+.tn-sec:last-child{ margin-bottom:0; }
+.tn-sh{
+  display:flex; align-items:center; gap:8px;
+  font-size:9.5px; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--dim); margin:0 0 4px;
+}
+.tn-sh .tn-shc{ font-size:10px; color:var(--faint); font-weight:600; letter-spacing:0; }
+.sec-over  .tn-sh{ color:var(--red); }
+.sec-block .tn-sh{ color:var(--amber); }
+.tn-sh::before{ content:""; width:7px; height:7px; border-radius:50%; flex:none;
+  background:currentColor; opacity:.85; }
+.tn-row{ display:flex; align-items:center; gap:10px; padding:6px 0;
+  border-bottom:1px dotted var(--line); }
+.tn-row:last-child{ border-bottom:0; }
+.tn-t{ font-size:12.5px; color:var(--fg-2); line-height:1.5; letter-spacing:.005em; }
+.tn-meta{ margin-left:auto; flex:none; font-size:10.5px; color:var(--faint);
+  font-variant-numeric:tabular-nums; white-space:nowrap; }
+.sec-over  .tn-meta{ color:var(--red); }
+.sec-block .tn-meta{ color:var(--amber); }
+.tn-done .tn-t{ color:var(--faint); text-decoration:line-through; text-decoration-color:var(--line-2); }
+.src-tag{ flex:none; font-size:9px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--dim); border:1px solid var(--line-2); padding:2px 7px; border-radius:5px; margin-left:12px; }
+`;
 
 const KANBAN_CSS = `
 .mp.is-board{ grid-template-columns:214px 1fr; }
@@ -380,6 +551,60 @@ const KANBAN_CSS = `
 .kn-md a{ color:oklch(0.83 0.11 215); }
 `;
 
+// CCS-031: Kontext view — stacked token bar + collapsible category rows.
+const CONTEXT_CSS = `
+.ctx-wrap{ max-width:920px; }
+.ctx-sum-p{ color:var(--dim); font-size:14px; font-weight:500; }
+.ctx-bar{ display:flex; width:100%; height:14px; border-radius:7px; overflow:hidden;
+  background:var(--inset); border:1px solid var(--line); margin:12px 0 18px; }
+.ctx-seg{ height:100%; display:block; min-width:1px; }
+.ctx-seg-free{ background:repeating-linear-gradient(45deg,transparent,transparent 5px,var(--line) 5px,var(--line) 10px); flex:1 1 auto; }
+.ctx-cats{ display:grid; gap:6px; }
+.ctx-cat{ border:1px solid var(--line); border-radius:8px; background:var(--panel); overflow:hidden; }
+.ctx-cat > summary{ list-style:none; cursor:pointer; display:flex; align-items:center; gap:9px;
+  padding:9px 12px; user-select:none; font-size:12.5px; }
+.ctx-cat > summary::-webkit-details-marker{ display:none; }
+.ctx-cat > summary:hover{ background:var(--panel-2); }
+.ctx-sw{ width:10px; height:10px; border-radius:3px; flex:0 0 auto; }
+.ctx-sw-free{ background:var(--line-3); }
+.ctx-l{ font-weight:600; color:var(--fg); }
+.ctx-tag{ font-size:9px; text-transform:uppercase; letter-spacing:.06em; padding:1px 6px;
+  border-radius:5px; font-weight:700; }
+.ctx-tag.fix{ background:var(--panel-3); color:var(--dim); }
+.ctx-tag.live{ background:color-mix(in oklch,var(--mag) 18%,transparent); color:var(--mag); }
+.ctx-bar-mini{ flex:1 1 auto; height:5px; min-width:40px; background:var(--inset);
+  border-radius:3px; overflow:hidden; margin:0 4px; }
+.ctx-bar-mini i{ display:block; height:100%; }
+.ctx-t{ font-size:11px; color:var(--fg-2); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.ctx-p{ font-size:10.5px; color:var(--faint); font-variant-numeric:tabular-nums; width:46px;
+  text-align:right; white-space:nowrap; }
+.ctx-body{ border-top:1px solid var(--line); padding:6px 12px 9px; display:grid; gap:3px; }
+.ctx-item{ display:flex; align-items:baseline; gap:9px; font-size:11.5px; color:var(--fg-2);
+  padding:2px 0; }
+.ctx-in{ flex:0 0 auto; color:var(--fg); font-weight:500; }
+.ctx-id{ flex:1 1 auto; color:var(--faint); font-size:10.5px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.ctx-it{ flex:0 0 auto; color:var(--cyan); font-variant-numeric:tabular-nums; }
+.ctx-item.ctx-empty, .ctx-item.ctx-loading{ color:var(--faint); font-style:italic; }
+.ctx-hookout{ margin:0; font-size:10.5px; line-height:1.55; color:var(--green); white-space:pre-wrap;
+  word-break:break-word; max-height:340px; overflow:auto; background:var(--inset);
+  border:1px solid var(--line-2); border-radius:6px; padding:9px 11px; }
+.ctx-free{ display:flex; align-items:center; gap:9px; padding:9px 12px; border:1px dashed var(--line-2);
+  border-radius:8px; font-size:12.5px; color:var(--dim); }
+.ctx-free .ctx-l{ color:var(--dim); }
+/* Readable memory items: collapsible file viewer inside context category */
+details.ctx-readable{ border-top:1px solid var(--line-2); }
+details.ctx-readable:first-child{ border-top:0; }
+details.ctx-readable > summary{
+  list-style:none; cursor:pointer; display:flex; align-items:baseline; gap:9px;
+  font-size:11.5px; color:var(--fg-2); padding:2px 0; user-select:none;
+}
+details.ctx-readable > summary::-webkit-details-marker{ display:none; }
+details.ctx-readable > summary:hover{ color:var(--fg); }
+details.ctx-readable[open] > summary .ctx-in{ color:var(--cyan); }
+.ctx-readable-body{ padding:6px 0 2px; }
+`;
+
 export async function renderPage(
   opts: RenderOptions & {
     context?: Record<string, unknown>;
@@ -404,57 +629,175 @@ export async function renderPage(
   const browserCss = await readText(join(assetsDir, "browser.css")) ?? "";
   const browserJs = await readText(join(assetsDir, "browser.js")) ?? "";
 
-  const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS + "\n" + SIDEBAR_CSS + "\n" +
-    KANBAN_CSS;
+  const css = dashCss + "\n" + browserCss + "\n" + EXTRA_CSS + "\n" + HEADER_CSS + "\n" +
+    SIDEBAR_CSS + "\n" + PROJECT_CSS + "\n" + KANBAN_CSS + "\n" + CONTEXT_CSS;
   const dataJson = safeScriptJson(data);
 
-  // Left sidebar: a top "Überblick" entry (cross-project + global) above the
-  // project list. Project rows are active only in project view.
+  // Sidebar: merged nav (#mp-nav filled by browser.js) + project list.
+  // Project rows use zero-noise chips: only render rows with activity (open|tn|cost).
+  // Active project always shown. Quiet projects hidden behind a toggle.
   const active = view === "project" ? (opts.active ?? "") : "";
   const sb = opts.sidebar ?? [];
-  const ovEntry =
-    `<a class="kn-proj kn-proj-ov${view === "overview" ? " is-active" : ""}" href="/">` +
-    `<span class="kn-proj-n">Überblick</span>` +
-    `<span class="kn-proj-s">alle Projekte · global</span></a>`;
-  const projRows = sb.map((p) => {
-    const cls = p.name === active ? " is-active" : "";
+
+  // CCS-029: In project view, use live-computed counts from buildData for the active
+  // project. The sidebar fallback has open_tasks:0/tn:0 before the cache is primed;
+  // buildData always runs collectBacklog+collectTn in project view (skipProject=false).
+  const ov = (data.overview as Record<string, unknown>) ?? {};
+
+  function projChips(openCount: number, tnCount: number, cost: number, isActive: boolean): string {
+    const parts: string[] = [];
+    if (openCount > 0 || isActive) parts.push(`<span class="ch open">${openCount} offen</span>`);
+    if (tnCount > 0) parts.push(`<span class="ch tn">${tnCount} tn</span>`);
+    if (cost > 0) parts.push(`<span class="ch cost">${escape(fmtCost(cost))}</span>`);
+    return parts.join("");
+  }
+
+  const projRowsHtml = sb.map((p) => {
+    const isActive = view === "project" && p.name === active;
+    const openCount = isActive
+      ? (ov.backlog_open != null ? Number(ov.backlog_open) : p.open_tasks)
+      : p.open_tasks;
+    const tnCount = isActive
+      ? (ov.tn_open != null ? Number(ov.tn_open) : (p.tn ?? 0))
+      : (p.tn ?? 0);
+    const hasActivity = openCount > 0 || tnCount > 0 || p.cost_7d > 0 || isActive;
+    const cls = isActive ? " is-active" : (hasActivity ? "" : " muted");
     const q = encodeURIComponent(p.name);
-    return `<a class="kn-proj${cls}" href="/?project=${q}" title="${escape(p.path)}">` +
-      `<span class="kn-proj-n">${escape(p.name)}</span>` +
-      `<span class="kn-proj-s"><b>${p.open_tasks}</b> offen · <b>${p.tn ?? 0}</b> tn · ${
-        escape(fmtCost(p.cost_7d))
-      }</span>` +
+    return `<a class="proj-i${cls}" href="/?project=${q}" title="${escape(p.path)}"` +
+      (hasActivity ? "" : " hidden") + ">" +
+      `<span class="pn">${escape(p.name)}</span>` +
+      `<span class="proj-chips">${projChips(openCount, tnCount, p.cost_7d, isActive)}</span>` +
       "</a>";
   }).join("");
-  const sidebarHtml = '<aside class="kn-projects" id="kn-projects">' + ovEntry +
-    '<div class="kn-proj-h">Projekte</div>' + projRows + "</aside>";
 
-  // Cross-project statusline (eine Zeile, umbricht bei wenig Platz): Repo-Backlog
-  // + Token-Kosten + tn-Task-ZAHLEN pro Repo (nur Count via working_dir-Match,
-  // keine Inhalte/kunde-Felder — siehe parseTnProjects).
+  const quietCount = sb.filter((p) => {
+    const isActive = view === "project" && p.name === active;
+    return !isActive && p.open_tasks === 0 && (p.tn ?? 0) === 0 && p.cost_7d === 0;
+  }).length;
+  const quietToggle = quietCount > 0
+    ? `<div class="proj-more">+ <b id="kn-show-quiet">${quietCount} ohne Aktivität</b></div>`
+    : "";
+
+  // Build project rows for the accordion sidebar.
+  // In overview view: #mp-nav sits at the top (global nav), project list below.
+  // In project view: back-link sits at top, project list below with active project expanded
+  //   (contains #mp-nav for project-specific nav sections).
+  const projRowsAccordionHtml = sb.map((p) => {
+    const isActive = view === "project" && p.name === active;
+    const openCount = isActive
+      ? (ov.backlog_open != null ? Number(ov.backlog_open) : p.open_tasks)
+      : p.open_tasks;
+    const tnCount = isActive
+      ? (ov.tn_open != null ? Number(ov.tn_open) : (p.tn ?? 0))
+      : (p.tn ?? 0);
+    const hasActivity = openCount > 0 || tnCount > 0 || p.cost_7d > 0 || isActive;
+    const chev = isActive ? "▾" : "▸";
+    const cls = isActive ? " is-active" : (hasActivity ? "" : " muted");
+    const q = encodeURIComponent(p.name);
+    // Active project: show as non-link div (accordion trigger, no nav reload), others as links.
+    if (isActive) {
+      return (
+        `<div class="proj-i${cls}" id="kn-proj-active" title="${escape(p.path)}">` +
+        `<span class="proj-chev">${chev}</span>` +
+        `<span class="pn">${escape(p.name)}</span>` +
+        `<span class="proj-chips">${projChips(openCount, tnCount, p.cost_7d, isActive)}</span>` +
+        `</div>` +
+        // #mp-nav injected here — browser.js fills it; position changes but ID stays
+        `<div class="proj-sub"><nav id="mp-nav"></nav></div>`
+      );
+    }
+    return `<a class="proj-i${cls}" href="/?project=${q}" title="${escape(p.path)}"` +
+      (hasActivity ? "" : " hidden") + ">" +
+      `<span class="proj-chev">${chev}</span>` +
+      `<span class="pn">${escape(p.name)}</span>` +
+      `<span class="proj-chips">${projChips(openCount, tnCount, p.cost_7d, isActive)}</span>` +
+      "</a>";
+  }).join("");
+
+  let sidebarHtml: string;
+  if (view === "overview") {
+    // Overview: global nav wrapped in proj-sub (same inset look as project accordion), then project list
+    sidebarHtml = '<aside class="pane-side" id="kn-sidebar">' +
+      '<div class="proj-sub"><nav id="mp-nav"></nav></div>' +
+      '<div class="proj-list">' +
+      '<div class="proj-list-hd">Projekte</div>' +
+      projRowsHtml +
+      quietToggle +
+      "</div>" +
+      "</aside>";
+  } else {
+    // Project view: back-link on top, then project list with active project accordion
+    sidebarHtml = '<aside class="pane-side" id="kn-sidebar">' +
+      '<div class="proj-list">' +
+      `<a class="proj-ov" href="/">Überblick · alle Projekte</a>` +
+      '<div class="proj-list-hd">Projekte</div>' +
+      projRowsAccordionHtml +
+      quietToggle +
+      "</div>" +
+      "</aside>";
+  }
+
+  // Cross-project header stats (counts only — no tn titles/content, Org-Regel)
   const sumOpen = sb.reduce((s, p) => s + p.open_tasks, 0);
   const sumCost = sb.reduce((s, p) => s + p.cost_7d, 0);
   const sumTn = sb.reduce((s, p) => s + (p.tn ?? 0), 0);
   const stand = escape(
     opts.generatedAt ?? String((data.meta as Record<string, unknown>)?.generated_at ?? ""),
   );
-  const loadingSeg = opts.loading ? '<span class="kn-loading">Daten laden…</span>' : "";
-  const statusline = '<div class="kn-status">' +
-    `<span><b>${sb.length}</b> Projekte</span>` +
-    `<span><b>${sumOpen}</b> offene Backlog-Tasks</span>` +
-    `<span><b>${sumTn}</b> tn-Tasks</span>` +
-    `<span>≈${escape(fmtCost(sumCost))} / 7 Tage</span>` +
-    `<span class="kn-status-2">Stand ${stand}</span>` +
-    loadingSeg +
-    "</div>";
-  const titleLabel = view === "overview"
-    ? "Überblick · alle Projekte"
-    : ("Projekt: " + escape(active));
+
+  // Breadcrumb: root=knowledge / here=Überblick|ProjectName / scope=context
+  const crumbHere = view === "overview" ? "Überblick" : escape(active);
+  const crumbScope = view === "overview" ? "· alle Projekte · global" : "· Projekt";
+
+  const header = '<header class="hd">' +
+    '<span class="lights"><i></i><i></i><i></i></span>' +
+    '<nav class="crumb">' +
+    '<span class="root">knowledge</span>' +
+    '<span class="sep">/</span>' +
+    `<span class="here" id="crumb-here">${crumbHere}</span>` +
+    `<span class="scope" id="crumb-scope">${crumbScope}</span>` +
+    "</nav>" +
+    '<span class="sp"></span>' +
+    '<div class="stats">' +
+    `<div class="stat"><span class="sv">${sb.length}</span><span class="sl">Projekte</span></div>` +
+    `<div class="stat"><span class="sv a">${sumOpen}</span><span class="sl">offen</span></div>` +
+    `<div class="stat"><span class="sv c">${sumTn}</span><span class="sl">tn-Tasks</span></div>` +
+    `<div class="stat"><span class="sv g">≈${
+      escape(fmtCost(sumCost))
+    }</span><span class="sl">7 Tage</span></div>` +
+    "</div>" +
+    `<span class="asof">Stand ${stand}</span>` +
+    '<button class="tg" id="kn-theme-toggle" type="button" aria-label="Theme wechseln">◐</button>' +
+    "</header>";
 
   // Theme pre-paint init
   const themeInit = "<script>(function(){try{var t=localStorage.getItem('kn-theme');" +
     "if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}" +
     "catch(e){}})();</script>";
+
+  // Quiet-projects toggle inline script (DOM already contains hidden rows)
+  const quietScript = quietCount > 0
+    ? "<script>(function(){var b=document.getElementById('kn-show-quiet');" +
+      "if(!b)return;" +
+      "b.addEventListener('click',function(){" +
+      "var rows=document.querySelectorAll('.proj-i[hidden]');" +
+      "[].forEach.call(rows,function(r){r.removeAttribute('hidden');r.classList.add('muted');});" +
+      "b.closest('.proj-more').remove();});})();</script>"
+    : "";
+
+  // Accordion toggle for the active project row in project view (client-side, no reload).
+  const accordionScript = view === "project"
+    ? "<script>(function(){var row=document.getElementById('kn-proj-active');" +
+      "if(!row)return;" +
+      "row.addEventListener('click',function(){" +
+      "var sub=row.nextElementSibling;" +
+      "if(!sub||!sub.classList.contains('proj-sub'))return;" +
+      "var open=sub.style.display!=='none';" +
+      "sub.style.display=open?'none':'';" +
+      "var chev=row.querySelector('.proj-chev');" +
+      "if(chev)chev.textContent=open?'▸':'▾';" +
+      "});})();</script>"
+    : "";
 
   return (
     "<!DOCTYPE html>\n" +
@@ -464,21 +807,18 @@ export async function renderPage(
     themeInit +
     `<style>${css}</style></head><body>` +
     '<div class="kn-shell">' +
-    statusline +
-    `<div class="kn-tabs" id="kn-tabs"><span class="kn-title">knowledge · ${titleLabel}</span>` +
-    '<span class="kn-tabs-sp"></span>' +
-    '<button class="kn-theme" id="kn-theme-toggle" type="button"' +
-    ' aria-label="Theme wechseln">☀</button>' +
-    "</div>" +
+    header +
     '<div class="kn-body">' +
     sidebarHtml +
-    "<div class='mp' id='mp'><nav class='mp-nav' id='mp-nav'></nav>" +
+    "<div class='mp' id='mp'>" +
     "<div class='mp-list' id='mp-list'></div>" +
     "<div class='mp-detail' id='mp-detail'></div></div>" +
     "</div>" +
     "</div>" +
     `<script>window.DATA = ${dataJson};</script>` +
     `<script>${browserJs}</script>` +
+    quietScript +
+    accordionScript +
     "</body></html>"
   );
 }

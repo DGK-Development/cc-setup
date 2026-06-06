@@ -5,6 +5,7 @@ import {
   parseTnProjects,
   projectLooseTasks,
   projectMilestones,
+  projectOpenTasks,
 } from "../src/collectors/sidebar.ts";
 import { join } from "@std/path";
 
@@ -87,6 +88,53 @@ Deno.test("projectLooseTasks returns only tasks WITHOUT a milestone (id/title/st
   assertEquals(loose[0].status, "In Progress");
 });
 
+// CCS-024b: projectLooseTasks excludes done tasks
+Deno.test("projectLooseTasks excludes tasks with status=done (case-insensitive)", async () => {
+  const repo = await Deno.makeTempDir();
+  const tasks = join(repo, "backlog", "tasks");
+  await Deno.mkdir(tasks, { recursive: true });
+  await Deno.writeTextFile(join(tasks, "a.md"), "---\nid: A-1\nstatus: To Do\n---\n");
+  await Deno.writeTextFile(join(tasks, "b.md"), "---\nid: A-2\nstatus: done\n---\n"); // lowercase done
+  await Deno.writeTextFile(join(tasks, "c.md"), "---\nid: A-3\nstatus: Done\n---\n"); // title-case done
+  await Deno.writeTextFile(join(tasks, "d.md"), "---\nid: A-4\nstatus:  DONE  \n---\n"); // whitespace
+  await Deno.writeTextFile(join(tasks, "e.md"), "---\nid: A-5\nstatus: In Progress\n---\n");
+  const loose = await projectLooseTasks(repo);
+  // Only A-1 and A-5 should remain
+  assertEquals(loose.map((t) => t.id).sort(), ["A-1", "A-5"]);
+});
+
+// CCS-025: countOpenTasks unified — completed/ tasks are always Done (no open inflation)
+Deno.test("countOpenTasks: completed/ tasks do not inflate open count (unified logic)", async () => {
+  const repo = await Deno.makeTempDir();
+  const tasks = join(repo, "backlog", "tasks");
+  const completed = join(repo, "backlog", "completed");
+  await Deno.mkdir(tasks, { recursive: true });
+  await Deno.mkdir(completed, { recursive: true });
+  // 2 open in tasks/
+  await Deno.writeTextFile(join(tasks, "t1.md"), "---\nid: T-1\nstatus: To Do\n---\n");
+  await Deno.writeTextFile(join(tasks, "t2.md"), "---\nid: T-2\nstatus: In Progress\n---\n");
+  // 1 done in tasks/ — not open
+  await Deno.writeTextFile(join(tasks, "t3.md"), "---\nid: T-3\nstatus: Done\n---\n");
+  // 3 tasks in completed/ — all done, must not count as open
+  await Deno.writeTextFile(join(completed, "t4.md"), "---\nid: T-4\nstatus: Done\n---\n");
+  await Deno.writeTextFile(join(completed, "t5.md"), "---\nid: T-5\nstatus: Done\n---\n");
+  await Deno.writeTextFile(join(completed, "t6.md"), "---\nid: T-6\n---\n"); // no status → treated as done by backlog
+  assertEquals(await countOpenTasks(repo), 2); // only T-1 + T-2
+});
+
+Deno.test("countOpenTasks: no double-count when same task id in tasks/ and completed/", async () => {
+  const repo = await Deno.makeTempDir();
+  const tasks = join(repo, "backlog", "tasks");
+  const completed = join(repo, "backlog", "completed");
+  await Deno.mkdir(tasks, { recursive: true });
+  await Deno.mkdir(completed, { recursive: true });
+  // T-1 in both dirs (edge case): tasks/ has it as In Progress
+  await Deno.writeTextFile(join(tasks, "t1.md"), "---\nid: T-1\nstatus: In Progress\n---\n");
+  await Deno.writeTextFile(join(completed, "t1.md"), "---\nid: T-1\nstatus: Done\n---\n");
+  // tasks/ wins for open count (seenIds prevents double counting)
+  assertEquals(await countOpenTasks(repo), 1);
+});
+
 Deno.test("projectMilestones groups tasks by milestone with done/total", async () => {
   const repo = await Deno.makeTempDir();
   const tasks = join(repo, "backlog", "tasks");
@@ -99,4 +147,32 @@ Deno.test("projectMilestones groups tasks by milestone with done/total", async (
     { name: "m1", done: 1, total: 2 },
     { name: "m2", done: 1, total: 1 },
   ]);
+});
+
+// CCS-026: projectOpenTasks returns all non-done tasks with project label
+Deno.test("projectOpenTasks: returns non-done tasks with id/title/status/milestone/project/file", async () => {
+  const repo = await Deno.makeTempDir();
+  const tasks = join(repo, "backlog", "tasks");
+  await Deno.mkdir(tasks, { recursive: true });
+  await Deno.writeTextFile(
+    join(tasks, "a.md"),
+    "---\nid: T-1\ntitle: Alpha\nstatus: To Do\nmilestone: m1\n---\n",
+  );
+  await Deno.writeTextFile(
+    join(tasks, "b.md"),
+    "---\nid: T-2\ntitle: Beta\nstatus: In Progress\n---\n",
+  );
+  await Deno.writeTextFile(join(tasks, "c.md"), "---\nid: T-3\ntitle: Gamma\nstatus: Done\n---\n"); // excluded
+  const got = await projectOpenTasks(repo, "my-proj");
+  assertEquals(got.length, 2);
+  assertEquals(got[0].id, "T-1");
+  assertEquals(got[0].project, "my-proj");
+  assertEquals(got[0].milestone, "m1");
+  assertEquals(got[1].id, "T-2");
+  assertEquals(got[1].status, "In Progress");
+});
+
+Deno.test("projectOpenTasks: returns empty when no backlog dir", async () => {
+  const repo = await Deno.makeTempDir();
+  assertEquals(await projectOpenTasks(repo, "x"), []);
 });

@@ -1,7 +1,7 @@
 {
   "tasks": {
-    "dev": "deno run --watch --allow-net --allow-read --allow-write=$HOME/.cache --allow-run=git,backlog,uv,ccusage,open --allow-env main.ts",
-    "start": "deno run --allow-net --allow-read --allow-write=$HOME/.cache --allow-run=git,backlog,uv,ccusage,open --allow-env main.ts",
+    "dev": "deno run --watch --allow-net --allow-read --allow-write=$HOME/.cache --allow-run=git,backlog,uv,ccusage,open,bash --allow-env main.ts",
+    "start": "deno run --allow-net --allow-read --allow-write=$HOME/.cache --allow-run=git,backlog,uv,ccusage,open,bash --allow-env main.ts",
     "test": "deno test --allow-read --allow-write --allow-run --allow-env",
     "check": "deno check main.ts",
     "fmt": "deno fmt",

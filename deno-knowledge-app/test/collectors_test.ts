@@ -12,7 +12,7 @@ import {
 } from "../src/collectors/index.ts";
 import { buildData, discoverProjects, resolveProjectCwd } from "../src/context.ts";
 import { safeScriptJson } from "../src/render.ts";
-import { parseDecisionsMd } from "../src/collectors/knowledge.ts";
+import { parseChangelogBlocks, parseDecisionsMd } from "../src/collectors/knowledge.ts";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -136,6 +136,72 @@ Deno.test("collectProject: knowledge index parsed, headers extracted", async () 
   assertEquals(ki.map((e) => e.title), ["Lektion A", "HTML B"]);
 });
 
+// CCS-030 (Item 4): collectProject includes proj_skills/agents/hooks counts
+Deno.test("collectProject: proj_skills/agents/hooks counted from .claude/ (CCS-030)", async () => {
+  const tmp = await Deno.makeTempDir();
+  // .claude/skills/ with 2 subdirs
+  await Deno.mkdir(`${tmp}/.claude/skills/myskill`, { recursive: true });
+  await Deno.mkdir(`${tmp}/.claude/skills/otherskill`, { recursive: true });
+  // .claude/agents/ with 1 .md
+  await Deno.mkdir(`${tmp}/.claude/agents`, { recursive: true });
+  await write(`${tmp}/.claude/agents/dev.md`, "# Dev\n");
+  // .claude/settings.json with 2 hooks
+  const settings = {
+    hooks: {
+      Stop: [{
+        matcher: "*",
+        hooks: [{ type: "command", command: "x" }, { type: "command", command: "y" }],
+      }],
+    },
+  };
+  await write(`${tmp}/.claude/settings.json`, JSON.stringify(settings));
+  // .claude/settings.local.json with 1 hook
+  const settingsLocal = {
+    hooks: {
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "z" }] }],
+    },
+  };
+  await write(`${tmp}/.claude/settings.local.json`, JSON.stringify(settingsLocal));
+
+  const res = await collectProject(tmp);
+  assertEquals(res.available, true);
+  assertEquals(res.proj_skills_count, 2);
+  assertEquals(res.proj_agents_count, 1);
+  assertEquals(res.proj_hooks_count, 3); // 2 from settings.json + 1 from settings.local.json
+});
+
+Deno.test("collectProject: proj_skills/agents/hooks are 0 when .claude/ absent (CCS-030)", async () => {
+  const tmp = await Deno.makeTempDir();
+  await write(`${tmp}/CLAUDE.md`, "# Minimal\n");
+  const res = await collectProject(tmp);
+  assertEquals(res.available, true);
+  assertEquals(res.proj_skills_count, 0);
+  assertEquals(res.proj_agents_count, 0);
+  assertEquals(res.proj_hooks_count, 0);
+});
+
+// CCS-030 (Item 1): knowledge/memory sorted newest-first
+Deno.test("collectKnowledge: memory sorted newest-first by mtime (CCS-030)", async () => {
+  const tmp = await Deno.makeTempDir();
+  const memDir = `${tmp}/knowledge/memory`;
+  await Deno.mkdir(memDir, { recursive: true });
+  // Write mem-a with an old mtime (simulate older file)
+  await write(`${memDir}/mem-a.md`, "a");
+  // Set mem-a mtime to 1 second in the past via utime
+  await Deno.utime(`${memDir}/mem-a.md`, new Date(Date.now() - 2000), new Date(Date.now() - 2000));
+  // Write mem-b with a current mtime (newer)
+  await write(`${memDir}/mem-b.md`, "b");
+  const res = await collectKnowledge(tmp, `${tmp}/no-vault`);
+  assertEquals(res.available, true);
+  const memory = res.memory as Array<{ name: string; mtime: number }>;
+  assertEquals(memory.length, 2);
+  // newest (mem-b) should come first since mem-a was explicitly set older
+  assertEquals(memory[0].name, "mem-b.md");
+  assertEquals(memory[1].name, "mem-a.md");
+  // mtimes are non-increasing (newest-first)
+  assertEquals(memory[0].mtime >= memory[1].mtime, true);
+});
+
 // ---------------------------------------------------------------------------
 // collect_knowledge
 // ---------------------------------------------------------------------------
@@ -150,11 +216,17 @@ Deno.test("collectKnowledge: backlog/decisions fallback", async () => {
   await write(`${tmp}/knowledge/lektion-x.md`, "x");
   const res = await collectKnowledge(tmp, `${tmp}/no-vault`);
   assertEquals(res.available, true);
-  const decs = res.decisions as Array<Record<string, string>>;
+  const decs = res.decisions as Array<Record<string, unknown>>;
   assertEquals(decs.length, 1);
   assertEquals(decs[0].title, "Foo decision");
   assertEquals(decs[0].status, "accepted");
-  assertEquals((res.lektionen as string[]).length, 1);
+  // mtime field present (epoch number)
+  assertEquals(typeof decs[0].mtime, "number");
+  // lektionen is now Array<{name,mtime}>
+  const lektionen = res.lektionen as Array<{ name: string; mtime: number }>;
+  assertEquals(lektionen.length, 1);
+  assertEquals(lektionen[0].name, "lektion-x.md");
+  assertEquals(typeof lektionen[0].mtime, "number");
 });
 
 Deno.test("collectKnowledge: knowledge/decisions.md preferred", async () => {
@@ -166,10 +238,13 @@ Deno.test("collectKnowledge: knowledge/decisions.md preferred", async () => {
     "## 001 — Preferred\nStatus: superseded\n\n## 002 -- Second\n",
   );
   const res = await collectKnowledge(tmp);
-  const decs = res.decisions as Array<Record<string, string>>;
+  const decs = res.decisions as Array<Record<string, unknown>>;
   assertEquals(decs.length, 2);
+  // All share same mtime from decisions.md file → sorted by id as tiebreaker
   assertEquals(decs[0].title, "Preferred");
   assertEquals(decs[0].status, "superseded");
+  // mtime field present
+  assertEquals(typeof decs[0].mtime, "number");
 });
 
 // ---------------------------------------------------------------------------
@@ -398,13 +473,14 @@ Deno.test("build_data: populates coll, nav, overview from rich context", () => {
             name: "audit",
             description: "A",
             tokens: 10,
+            meta_tokens: 3,
             size_bytes: 100,
             has_md: true,
             scripts: [],
           }],
         },
         agents: ["Bot"],
-        agent_items: [{ name: "Bot", tokens: 5, size_bytes: 50, description: "" }],
+        agent_items: [{ name: "Bot", tokens: 5, meta_tokens: 2, size_bytes: 50, description: "" }],
         claude_md: { headers: ["Rules"], tokens: 20, size_bytes: 200, managed_block: true },
         settings: {
           hook_events: { Stop: 1 },
@@ -534,12 +610,20 @@ Deno.test("build_data: populates coll, nav, overview from rich context", () => {
     name: "audit",
     cat: "",
     desc: "A",
-    tokens: 10,
+    tokens: 10, // full SKILL.md — standalone Skills nav uses corpus size
+    metaTokens: 3, // session-start load (name + description)
     size: 100,
     has_md: true,
     scripts: [],
   }]);
-  assertEquals(coll.agents.items, [{ name: "Bot", role: "", tools: [], tokens: 5, size: 50 }]);
+  assertEquals(coll.agents.items, [{
+    name: "Bot",
+    role: "",
+    tools: [],
+    tokens: 5,
+    metaTokens: 2,
+    size: 50,
+  }]);
   assertEquals((coll.decisions.items as Array<Record<string, unknown>>)[0].id, "001");
   assertEquals(overview.skills, 1);
   assertEquals(overview.cost_today, "$1.00");
@@ -637,3 +721,184 @@ Deno.test("POST /action/push requires PUSH token", async () => {
 // assertMatch imported but only used for potential future tests
 const _assertMatch = assertMatch;
 void _assertMatch;
+
+// ---------------------------------------------------------------------------
+// CCS-021: parseChangelogBlocks — robust CHANGELOG parsing
+// ---------------------------------------------------------------------------
+
+Deno.test("parseChangelogBlocks: parses heading+body blocks, limits entries", () => {
+  const md = "## 2024-06-01 — feat: foo\nline A\nline B\n\n## 2024-05-01 — fix: bar\nline C\n";
+  const blocks = parseChangelogBlocks(md, 10);
+  assertEquals(blocks.length, 2);
+  assertEquals(blocks[0].heading, "## 2024-06-01 — feat: foo");
+  assertStringIncludes(blocks[0].body, "line A");
+  assertStringIncludes(blocks[0].body, "line B");
+  assertEquals(blocks[1].heading, "## 2024-05-01 — fix: bar");
+});
+
+Deno.test("parseChangelogBlocks: H1 document title not included as entry (Finding 1)", () => {
+  // # CHANGELOG is a document title, not a release entry — must be skipped
+  const md = "# CHANGELOG\n\n## 2024-06-01 — feat: foo\nbody here\n";
+  const blocks = parseChangelogBlocks(md, 10);
+  assertEquals(blocks.length, 1);
+  assertEquals(blocks[0].heading, "## 2024-06-01 — feat: foo");
+});
+
+Deno.test("parseChangelogBlocks: blocks with empty body are skipped (Finding 1)", () => {
+  // A heading with no body content must not produce an entry
+  const md = "## 2024-06-01\n\n## 2024-05-01 — fix: bar\nbody here\n";
+  const blocks = parseChangelogBlocks(md, 10);
+  assertEquals(blocks.length, 1);
+  assertEquals(blocks[0].heading, "## 2024-05-01 — fix: bar");
+});
+
+Deno.test("parseChangelogBlocks: oldest-first file is reversed to newest-first (Finding 2)", () => {
+  // File has oldest entry at top — result must be newest-first
+  const md = "## 2023-01-01 — old\nbody old\n\n## 2024-06-01 — new\nbody new\n";
+  const blocks = parseChangelogBlocks(md, 10);
+  assertEquals(blocks.length, 2);
+  assertEquals(blocks[0].heading, "## 2024-06-01 — new"); // newest first
+  assertEquals(blocks[1].heading, "## 2023-01-01 — old");
+});
+
+Deno.test("parseChangelogBlocks: already newest-first file is not reversed (Finding 2)", () => {
+  // File already has newest at top — must stay unchanged
+  const md = "## 2024-06-01 — new\nbody new\n\n## 2023-01-01 — old\nbody old\n";
+  const blocks = parseChangelogBlocks(md, 10);
+  assertEquals(blocks[0].heading, "## 2024-06-01 — new");
+});
+
+Deno.test("parseChangelogBlocks: respects limit", () => {
+  const lines = Array.from({ length: 30 }, (_, i) => `## entry-${i}\nbody ${i}`).join("\n");
+  assertEquals(parseChangelogBlocks(lines, 5).length, 5);
+});
+
+Deno.test("parseChangelogBlocks: empty text returns empty array", () => {
+  assertEquals(parseChangelogBlocks("", 10), []);
+  assertEquals(parseChangelogBlocks("no headings here", 10), []);
+});
+
+Deno.test("collectKnowledge: prefers knowledge/CHANGELOG.md over vault path", async () => {
+  const tmp = await Deno.makeTempDir();
+  await write(`${tmp}/knowledge/CHANGELOG.md`, "## 2024-06-01 — local entry\nbody here\n");
+  // vault exists but should be ignored because local takes priority
+  const vaultTmp = await Deno.makeTempDir();
+  await Deno.mkdir(`${vaultTmp}/Efforts/Work/dgk/test-repo`, { recursive: true });
+  await write(
+    `${vaultTmp}/Efforts/Work/dgk/test-repo/CHANGELOG.md`,
+    "## 2024-01-01 — vault entry\nvault body\n",
+  );
+  const res = await collectKnowledge(tmp, vaultTmp);
+  assertEquals(res.available, true);
+  const cl = res.changelog as Array<{ heading: string; body: string }>;
+  assertEquals(cl.length >= 1, true);
+  assertEquals(cl[0].heading, "## 2024-06-01 — local entry");
+  assertStringIncludes(cl[0].body, "body here");
+});
+
+Deno.test("collectKnowledge: falls back to vault path when no local CHANGELOG", async () => {
+  const tmp = await Deno.makeTempDir();
+  const vaultTmp = await Deno.makeTempDir();
+  // Need a git repo for repoRoot to work — use tmp itself as the "root"
+  const repoName = tmp.split("/").pop()!;
+  await Deno.mkdir(`${vaultTmp}/Efforts/Work/dgk/${repoName}`, { recursive: true });
+  await write(
+    `${vaultTmp}/Efforts/Work/dgk/${repoName}/CHANGELOG.md`,
+    "## vault-entry\nvault-body\n",
+  );
+  const res = await collectKnowledge(tmp, vaultTmp);
+  assertEquals(res.available, true);
+  const cl = res.changelog as Array<{ heading: string; body: string }>;
+  assertEquals(cl.length >= 1, true);
+  assertEquals(cl[0].heading, "## vault-entry");
+});
+
+// ---------------------------------------------------------------------------
+// CCS-022: lessons-learned.md included in lektionen
+// ---------------------------------------------------------------------------
+
+Deno.test("collectKnowledge: includes lessons-learned.md when present", async () => {
+  const tmp = await Deno.makeTempDir();
+  await write(`${tmp}/knowledge/lektion-001.md`, "x");
+  await write(`${tmp}/knowledge/lessons-learned.md`, "# Lessons\n- item 1\n");
+  const res = await collectKnowledge(tmp, `${tmp}/no-vault`);
+  assertEquals(res.available, true);
+  // lektionen is now Array<{name,mtime}>, sorted newest-first
+  const lektionen = res.lektionen as Array<{ name: string; mtime: number }>;
+  assertEquals(lektionen.map((l) => l.name).includes("lessons-learned.md"), true);
+  assertEquals(lektionen.map((l) => l.name).includes("lektion-001.md"), true);
+});
+
+Deno.test("collectKnowledge: no error when lessons-learned.md absent", async () => {
+  const tmp = await Deno.makeTempDir();
+  await write(`${tmp}/knowledge/lektion-001.md`, "x");
+  const res = await collectKnowledge(tmp, `${tmp}/no-vault`);
+  assertEquals(res.available, true);
+  const lektionen = res.lektionen as Array<{ name: string; mtime: number }>;
+  assertEquals(lektionen.map((l) => l.name).includes("lessons-learned.md"), false);
+  assertEquals(lektionen.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// CCS-024a: backlog/docs collected by collectKnowledge
+// ---------------------------------------------------------------------------
+
+Deno.test("collectKnowledge: reads backlog/docs/*.md as docs", async () => {
+  const tmp = await Deno.makeTempDir();
+  await Deno.mkdir(`${tmp}/backlog/docs`, { recursive: true });
+  await write(
+    `${tmp}/backlog/docs/doc-1 - API Guidelines.md`,
+    "---\nid: doc-1\ntitle: API Guidelines\n---\n# API Guidelines\ncontent here\n",
+  );
+  await write(`${tmp}/backlog/docs/doc-2 - Setup.md`, "# Setup Guide\nsome setup info\n");
+  const res = await collectKnowledge(tmp, `${tmp}/no-vault`);
+  assertEquals(res.available, true);
+  const docs = res.docs as Array<{ id: string; title: string; file: string; mtime: number }>;
+  assertEquals(docs.length, 2);
+  assertEquals(docs.find((d) => d.id === "doc-1")?.title, "API Guidelines");
+  assertEquals(docs.find((d) => d.file === "doc-2 - Setup.md")?.title, "Setup Guide");
+  // mtime present on each doc
+  assertEquals(docs.every((d) => typeof d.mtime === "number"), true);
+});
+
+Deno.test("collectKnowledge: empty docs section when backlog/docs missing", async () => {
+  const tmp = await Deno.makeTempDir();
+  const res = await collectKnowledge(tmp, `${tmp}/no-vault`);
+  assertEquals(res.available, true);
+  const docs = res.docs as Array<unknown>;
+  assertEquals(Array.isArray(docs), true);
+  assertEquals(docs.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// CCS-024c: overview.tn_total — Org-Compliance (nur Zahl, synthetisch, Finding 4)
+// ---------------------------------------------------------------------------
+
+Deno.test("buildData overview.tn_total sums tn counts from context.projects (Org-Konform)", () => {
+  const ctx = {
+    generated_at: "",
+    cwd: "/x",
+    // Three projects: tn counts 3 + 0 + 5 = 8; no task titles/kunde/content
+    projects: [{ name: "a", path: "/a", tn: 3 }, { name: "b", path: "/b", tn: 0 }, {
+      name: "c",
+      path: "/c",
+      tn: 5,
+    }],
+    active_project: "",
+    cards: {},
+  };
+  const overview = buildData(ctx).overview as Record<string, unknown>;
+  assertEquals(overview.tn_total, 8);
+});
+
+Deno.test("buildData overview.tn_total is 0 when projects have no tn field", () => {
+  const ctx = {
+    generated_at: "",
+    cwd: "/x",
+    projects: [{ name: "a", path: "/a" }, { name: "b", path: "/b" }],
+    active_project: "",
+    cards: {},
+  };
+  const overview = buildData(ctx).overview as Record<string, unknown>;
+  assertEquals(overview.tn_total, 0);
+});

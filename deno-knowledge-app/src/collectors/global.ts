@@ -29,6 +29,11 @@ interface SkillMeta {
   name: string;
   description: string;
   tokens: number;
+  // meta_tokens: tokens Claude Code actually loads at session start per skill —
+  // only name + frontmatter description (progressive disclosure). The full body
+  // is loaded on invocation, not up-front. Used by the context view; `tokens`
+  // (full SKILL.md) stays the corpus-size metric for the standalone Skills nav.
+  meta_tokens: number;
   size_bytes: number;
   has_md: boolean;
   scripts: ScriptMeta[];
@@ -37,6 +42,8 @@ interface SkillMeta {
 interface AgentMeta {
   name: string;
   tokens: number;
+  // meta_tokens: see SkillMeta — name + description only (loaded at session start).
+  meta_tokens: number;
   size_bytes: number;
   description: string;
 }
@@ -77,6 +84,7 @@ async function skillMeta(skillDir: string): Promise<SkillMeta> {
     name,
     description: "",
     tokens: 0,
+    meta_tokens: 0,
     size_bytes: 0,
     has_md: false,
     scripts,
@@ -85,10 +93,12 @@ async function skillMeta(skillDir: string): Promise<SkillMeta> {
     const stat = await Deno.stat(mdPath);
     const text = await readText(mdPath);
     if (!text) return base;
+    const description = frontmatterField(text, "description");
     return {
       name,
-      description: frontmatterField(text, "description"),
+      description,
       tokens: estTokens(text),
+      meta_tokens: estTokens(name + "\n" + description),
       size_bytes: stat.size,
       has_md: true,
       scripts,
@@ -104,15 +114,17 @@ async function agentMeta(agentMd: string): Promise<AgentMeta> {
   try {
     const stat = await Deno.stat(agentMd);
     const text = await readText(agentMd);
-    if (!text) return { name, tokens: 0, size_bytes: 0, description: "" };
+    if (!text) return { name, tokens: 0, meta_tokens: 0, size_bytes: 0, description: "" };
+    const description = frontmatterField(text, "description");
     return {
       name,
       tokens: estTokens(text),
+      meta_tokens: estTokens(name + "\n" + description),
       size_bytes: stat.size,
-      description: frontmatterField(text, "description"),
+      description,
     };
   } catch {
-    return { name, tokens: 0, size_bytes: 0, description: "" };
+    return { name, tokens: 0, meta_tokens: 0, size_bytes: 0, description: "" };
   }
 }
 

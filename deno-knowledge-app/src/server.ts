@@ -10,7 +10,10 @@ import {
   setTaskStatus,
 } from "./collectors/index.ts";
 import { ensureFresh, getAggregate } from "./cache.ts";
+import { collectHookInject } from "./collectors/hook_inject.ts";
 import { fmtMtime } from "./md.ts";
+import { join } from "@std/path";
+import { parseJson, run } from "./shared.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 
@@ -107,6 +110,51 @@ export function createHandler(opts: AppOptions): (req: Request) => Response | Pr
       const path = url.searchParams.get("path") ?? "";
       const result = await readDoc(target, claudeHome, kind, name, path);
       return Response.json(result);
+    }
+
+    // GET /tn-note — CCS-027: fetch tn task note body via tn show <id> --format json.
+    // Returns {ok, body} where body is the raw Markdown body (no frontmatter).
+    // id is strictly validated (alphanumeric + hyphen/underscore) to prevent injection.
+    if (req.method === "GET" && pathname === "/tn-note") {
+      const tnId = url.searchParams.get("id") ?? "";
+      const project = url.searchParams.get("project") ?? "";
+      // Whitelist: tn task IDs are alphanumeric + hyphens/underscores, no path chars
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(tnId)) {
+        return Response.json({ ok: false, error: "ungültige Task-ID" });
+      }
+      const target = await getTarget(project);
+      const scriptsDir = join(new URL("../../scripts", import.meta.url).pathname);
+      const tnPath = join(scriptsDir, "tasknotes_cli.py");
+      try {
+        await Deno.stat(tnPath);
+      } catch {
+        return Response.json({ ok: false, error: "tn nicht verfügbar" });
+      }
+      const out = await run(["uv", "run", "--script", tnPath, "show", tnId, "--format", "json"], {
+        cwd: target,
+      });
+      const parsed = parseJson<{ task?: { body?: string; title?: string } }>(out);
+      if (!parsed?.task) {
+        return Response.json({ ok: false, error: "Task nicht gefunden" });
+      }
+      return Response.json({
+        ok: true,
+        body: parsed.task.body ?? "",
+        title: parsed.task.title ?? tnId,
+      });
+    }
+
+    // GET /hook-inject — CCS-031: run the SessionStart hook LIVE for the selected
+    // project and return its token cost. project comes from the known-projects
+    // whitelist (resolveProjectCwd) — no user input reaches the command. The
+    // collector single-flights + TTL-caches + times out, so this never spawns a
+    // subprocess per request or runs away. CC_HOOK_LOG_FILE=/dev/null inside the
+    // collector keeps the canonical session log untouched.
+    if (req.method === "GET" && pathname === "/hook-inject") {
+      const project = url.searchParams.get("project") ?? "";
+      const target = await getTarget(project);
+      const r = await collectHookInject(target);
+      return Response.json(r);
     }
 
     // GET /gitdiff

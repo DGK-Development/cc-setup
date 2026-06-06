@@ -33,6 +33,7 @@ export interface SidebarProject extends ProjectRef {
   cost_7d: number;
   milestones: Milestone[];
   looseTasks: LooseTask[];
+  openTasks: OpenTask[];
   tn: number;
 }
 
@@ -109,18 +110,41 @@ export async function discoverProjectsIn(
     .map(([name, path]) => ({ name, path }));
 }
 
-/** Count non-Done tasks in a project's backlog/tasks/ (frontmatter status). */
+/**
+ * Count non-Done tasks for a project — mirrors collectBacklog logic exactly:
+ * scans backlog/tasks/ (uses frontmatter status) PLUS backlog/completed/ (always Done).
+ * Tasks in completed/ never increase the open count; including them ensures the
+ * number matches the Boards-Header count from collectBacklog (unified source).
+ */
 export async function countOpenTasks(repoPath: string): Promise<number> {
   const tasksDir = join(repoPath, "backlog", "tasks");
   let open = 0;
+  const seenIds = new Set<string>();
   try {
     for await (const e of Deno.readDir(tasksDir)) {
       if (!e.isFile || !e.name.endsWith(".md")) continue;
       const text = await readText(join(tasksDir, e.name));
       if (text === null) continue;
+      const id = frontmatterField(text, "id") || e.name;
+      seenIds.add(id);
       if (frontmatterField(text, "status").trim().toLowerCase() !== "done") open++;
     }
   } catch { /* no backlog/tasks */ }
+  // completed/ — all done, so they never add to open count; scan to track ids
+  // (prevents double-counting if a task somehow appears in both dirs)
+  try {
+    const completedDir = join(repoPath, "backlog", "completed");
+    for await (const e of Deno.readDir(completedDir)) {
+      if (!e.isFile || !e.name.endsWith(".md")) continue;
+      const text = await readText(join(completedDir, e.name));
+      if (text === null) continue;
+      const id = frontmatterField(text, "id") || e.name;
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        // completed/ tasks are always Done → open count unchanged
+      }
+    }
+  } catch { /* no completed/ dir — expected */ }
   return open;
 }
 
@@ -146,7 +170,44 @@ export async function projectMilestones(repoPath: string): Promise<Milestone[]> 
     .map(([name, v]) => ({ name, done: v.done, total: v.total }));
 }
 
-/** Backlog tasks WITHOUT a milestone (id/title/status/file), for the project-wide overview. */
+export interface OpenTask {
+  id: string;
+  title: string;
+  status: string;
+  milestone: string;
+  project: string;
+  file: string;
+}
+
+/**
+ * All non-done backlog tasks for a project (id/title/status/milestone/project/file).
+ * Used for the cross-project Kanban board in CCS-026.
+ */
+export async function projectOpenTasks(repoPath: string, projectName: string): Promise<OpenTask[]> {
+  const tasksDir = join(repoPath, "backlog", "tasks");
+  const out: OpenTask[] = [];
+  try {
+    for await (const e of Deno.readDir(tasksDir)) {
+      if (!e.isFile || !e.name.endsWith(".md")) continue;
+      const text = await readText(join(tasksDir, e.name));
+      if (text === null) continue;
+      const status = frontmatterField(text, "status");
+      if (status.trim().toLowerCase() === "done") continue;
+      const id = frontmatterField(text, "id") || e.name.replace(/\.md$/, "");
+      out.push({
+        id,
+        title: frontmatterField(text, "title") || id,
+        status,
+        milestone: frontmatterField(text, "milestone"),
+        project: projectName,
+        file: e.name,
+      });
+    }
+  } catch { /* no backlog/tasks */ }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Backlog tasks WITHOUT a milestone and NOT done, for the project-wide overview. */
 export async function projectLooseTasks(repoPath: string): Promise<LooseTask[]> {
   const tasksDir = join(repoPath, "backlog", "tasks");
   const out: LooseTask[] = [];
@@ -156,11 +217,13 @@ export async function projectLooseTasks(repoPath: string): Promise<LooseTask[]> 
       const text = await readText(join(tasksDir, e.name));
       if (text === null) continue;
       if (frontmatterField(text, "milestone")) continue; // has a milestone → not loose
+      const status = frontmatterField(text, "status");
+      if (status.trim().toLowerCase() === "done") continue; // filter out done tasks
       const id = frontmatterField(text, "id") || e.name.replace(/\.md$/, "");
       out.push({
         id,
         title: frontmatterField(text, "title") || id,
-        status: frontmatterField(text, "status"),
+        status,
         file: e.name,
       });
     }
@@ -177,12 +240,13 @@ export async function collectSidebar(activeRepo: string): Promise<SidebarProject
     const open_tasks = await countOpenTasks(p.path);
     const milestones = await projectMilestones(p.path);
     const looseTasks = await projectLooseTasks(p.path);
+    const openTasks = await projectOpenTasks(p.path, p.name);
     let cost_7d = 0;
     try {
       cost_7d = await sevenDayCostNative(p.path);
     } catch { /* sessions unavailable → 0 */ }
     const tn = tnCounts.get(p.path.replace(/\/+$/, "")) ?? 0;
-    out.push({ ...p, open_tasks, cost_7d, milestones, looseTasks, tn });
+    out.push({ ...p, open_tasks, cost_7d, milestones, looseTasks, openTasks, tn });
   }
   return out;
 }

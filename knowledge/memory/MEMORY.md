@@ -8,3 +8,4 @@
 - [Deno-Knowledge Cache Python-Runaway](deno-knowledge-cache-python-runaway.md) — Sidebar-Cost spawnte runaway session_analyze.py (100GB); single-flight+lazy, max 1 Python, kein Multi-Server
 - [Deno-Knowledge tn Org-Block](deno-knowledge-tn-org-block.md) — tn-Daten = kunden-/personenbezogen; NICHT cross-project aggregieren, tn projects meiden (Org-Regel)
 - [Skill-Deploy Plugin-Root-Platzhalter](skill-deploy-plugin-root-placeholder.md) — Skills nutzen ${CLAUDE_PLUGIN_ROOT}-Platzhalter (deploy-zeit-sed), nie hardcoded $HOME/.claude; deploy.sh defaultet auf $CLAUDE_CONFIG_DIR
+- [CC Kontext: Skill/Agent nur Metadaten](cc-context-skill-agent-metadata-only.md) — /context lädt je Skill/Agent nur name+description (progressive disclosure), nicht ganze Datei; Footprint-Tools entsprechend zählen

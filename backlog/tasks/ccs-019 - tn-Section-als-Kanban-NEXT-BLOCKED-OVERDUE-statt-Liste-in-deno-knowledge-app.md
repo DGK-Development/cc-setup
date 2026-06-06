@@ -1,11 +1,11 @@
 ---
 id: CCS-019
 title: tn-Section als Kanban (NEXT/BLOCKED/OVERDUE) statt Liste in deno-knowledge-app
-status: In Progress
+status: Done
 assignee:
   - '@niclasedge'
 created_date: '2026-06-05 20:38'
-updated_date: '2026-06-05 21:06'
+updated_date: '2026-06-06 05:53'
 labels:
   - deno-knowledge-app
   - tn
