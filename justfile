@@ -59,6 +59,20 @@ deno port="8765":
     echo "knowledge (deno) → http://127.0.0.1:{{port}}/  · Live-Reload via --watch"
     cd deno-knowledge-app && exec deno task dev --cwd .. --port {{port}} --no-open
 
+# Single-Pane-Status-Dashboard (Go-Port) auf 127.0.0.1 starten + Browser oeffnen.
+# Stoppt ZUERST alle laufenden Instanzen (Go + Deno) → kein Port-Konflikt auf 8765.
+go port="8765":
+    #!/usr/bin/env bash
+    pkill -f "go-knowledge-app" 2>/dev/null || true
+    pkill -f "deno run.*main\.ts.*--cwd" 2>/dev/null || true
+    sleep 1
+    echo "knowledge (go) → http://127.0.0.1:{{port}}/"
+    cd go-knowledge-app && exec go run . --cwd .. --port {{port}}
+
+# Go-Build-Gate: kompiliert + vettet + gofmt-Check (kein Server-Start).
+go-build:
+    cd go-knowledge-app && go build ./... && go vet ./... && test -z "$(gofmt -l .)"
+
 # Deno-Tests (deno test)
 deno-test:
     cd deno-knowledge-app && deno task test

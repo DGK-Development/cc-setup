@@ -1,7 +1,9 @@
 import { assertEquals } from "@std/assert";
 import { buildData } from "../src/context.ts";
 import {
+  CTX_CALIB,
   CTX_WINDOW,
+  ctxTok,
   memoryMdTokens,
   SYS_PROMPT_TOK,
   SYS_TOOLS_TOK,
@@ -89,28 +91,43 @@ Deno.test("buildData coll.context: fixed constants are exact", () => {
   assertEquals(tools.fixed, true);
 });
 
-Deno.test("buildData coll.context: agents/skills items use META tokens (session-start load), not full file", () => {
+Deno.test("buildData coll.context: agents/skills items use calibrated META tokens (ctxTok)", () => {
+  // CCS-034C: ctxTok(metaTokens) = round(meta_tokens * CTX_CALIB) wird in der Kontext-View
+  // angewendet. meta_tokens der Fixtures: dev=5, a=10, b=20.
+  // Full-file-tokens (50/100/200) dürfen NICHT verwendet werden.
   const coll = buildData(ctxCtx(), "project").coll as Record<string, Record<string, unknown>>;
   const cats = coll.context.categories as Array<
     { key: string; tokens: number; items: Array<{ name: string; tokens: number }> }
   >;
   const agents = cats.find((c) => c.key === "agents")!;
-  assertEquals(agents.tokens, 5); // meta_tokens of "dev" (NOT full 50)
+  // User-Agent "dev" hat meta_tokens=5 → ctxTok(5)=round(5*1.7)=9; kein Plugin/Project-Agent
+  assertEquals(agents.tokens, ctxTok(5));
+  // items: nur User-Agent (keine Plugin- / Project-Agents in Fixture)
   assertEquals(agents.items.map((i) => i.name), ["dev"]);
-  assertEquals(agents.items.map((i) => i.tokens), [5]);
+  assertEquals(agents.items.map((i) => i.tokens), [ctxTok(5)]);
   const skills = cats.find((c) => c.key === "skills")!;
-  assertEquals(skills.tokens, 30); // 10 + 20 meta (NOT full 100 + 200)
-  assertEquals(skills.items.length, 2);
-  assertEquals(skills.items.map((i) => i.tokens), [10, 20]);
+  // User-Skills a(10), b(20) + Built-in(1700 fix); ctxTok(10)=17, ctxTok(20)=34
+  const BUILTIN = 1700;
+  assertEquals(skills.tokens, ctxTok(10) + ctxTok(20) + BUILTIN);
+  // items: 2 User-Skills + 1 Built-in (no plugins in fixture)
+  assertEquals(skills.items.length, 3);
+  const userSkills = (skills.items as Array<{ name: string; tokens: number }>).filter(
+    (i) => i.name !== "(Built-in ≈)",
+  );
+  assertEquals(userSkills.map((i) => i.tokens), [ctxTok(10), ctxTok(20)]);
+  // Verify CTX_CALIB is exported and equals 1.7
+  assertEquals(CTX_CALIB, 1.7);
 });
 
-Deno.test("buildData coll.context: memory category sums global+project CLAUDE.md + MEMORY.md", () => {
+Deno.test("buildData coll.context: memory category uses ctxTok calibration", () => {
+  // CCS-034C: Memory-Tokens werden mit ctxTok kalibriert (×1.7).
+  // Fixture: global=1000, projekt=400, MEMORY.md=300 (alle raw estTokens).
   const coll = buildData(ctxCtx(), "project").coll as Record<string, Record<string, unknown>>;
   const cats = coll.context.categories as Array<
     { key: string; tokens: number; items: Array<{ name: string }> }
   >;
   const mem = cats.find((c) => c.key === "memory")!;
-  assertEquals(mem.tokens, 1000 + 400 + 300);
+  assertEquals(mem.tokens, ctxTok(1000) + ctxTok(400) + ctxTok(300));
   assertEquals(mem.items.map((i) => i.name), [
     "CLAUDE.md (global)",
     "CLAUDE.md (Projekt)",
@@ -126,7 +143,8 @@ Deno.test("buildData coll.context: MEMORY.md item omitted when unavailable", () 
     { key: string; tokens: number; items: Array<{ name: string }> }
   >;
   const mem = cats.find((c) => c.key === "memory")!;
-  assertEquals(mem.tokens, 1000 + 400); // no MEMORY.md
+  // CCS-034C: ohne MEMORY.md nur global+projekt, beide kalibriert
+  assertEquals(mem.tokens, ctxTok(1000) + ctxTok(400)); // no MEMORY.md
   assertEquals(mem.items.map((i) => i.name), ["CLAUDE.md (global)", "CLAUDE.md (Projekt)"]);
 });
 
@@ -187,4 +205,102 @@ Deno.test("memoryMdTokens returns available:false when file is missing", async (
     if (prev === undefined) Deno.env.delete("CLAUDE_MEMORY_DIR");
     else Deno.env.set("CLAUDE_MEMORY_DIR", prev);
   }
+});
+
+// CCS-034C: ctxTok unit tests
+Deno.test("ctxTok applies CTX_CALIB factor and rounds", () => {
+  assertEquals(ctxTok(0), 0);
+  assertEquals(ctxTok(100), Math.round(100 * CTX_CALIB));
+  assertEquals(ctxTok(5), Math.round(5 * CTX_CALIB));
+  // Faktor ist 1.7 — nicht ändern ohne Kalibrierung gegen /context
+  assertEquals(CTX_CALIB, 1.7);
+});
+
+// CCS-034C: collectPluginItems — enabled-Filter + installPath-Auflösung + group-Zuordnung
+Deno.test("collectPluginItems: reads enabled plugins from settings.json and enumerates skills/agents", async () => {
+  const { collectPluginItems } = await import("../src/collectors/plugins.ts");
+  const tmp = await Deno.makeTempDir();
+
+  // settings.json mit einem enabled + einem disabled Plugin
+  await Deno.writeTextFile(
+    tmp + "/settings.json",
+    JSON.stringify({
+      enabledPlugins: {
+        "myplugin@marketplace": true,
+        "disabled@marketplace": false,
+      },
+    }),
+  );
+
+  // installed_plugins.json mit installPath für beide
+  const pluginBase = tmp + "/plugins";
+  await Deno.mkdir(pluginBase, { recursive: true });
+  const enabledPath = tmp + "/enabled-install";
+  const disabledPath = tmp + "/disabled-install";
+  await Deno.writeTextFile(
+    pluginBase + "/installed_plugins.json",
+    JSON.stringify({
+      plugins: {
+        "myplugin@marketplace": [{ installPath: enabledPath }],
+        "disabled@marketplace": [{ installPath: disabledPath }],
+      },
+    }),
+  );
+
+  // Skill im enabled Plugin anlegen
+  await Deno.mkdir(enabledPath + "/skills/my-skill", { recursive: true });
+  await Deno.writeTextFile(
+    enabledPath + "/skills/my-skill/SKILL.md",
+    "---\nname: my-skill\ndescription: Does something useful.\n---\n# My Skill\n",
+  );
+
+  // Skill im disabled Plugin — darf NICHT erscheinen
+  await Deno.mkdir(disabledPath + "/skills/hidden-skill", { recursive: true });
+  await Deno.writeTextFile(
+    disabledPath + "/skills/hidden-skill/SKILL.md",
+    "---\nname: hidden-skill\ndescription: Hidden.\n---\n",
+  );
+
+  // Agent im enabled Plugin
+  await Deno.mkdir(enabledPath + "/agents", { recursive: true });
+  await Deno.writeTextFile(
+    enabledPath + "/agents/my-agent.md",
+    "---\ndescription: An agent.\n---\n",
+  );
+
+  const result = await collectPluginItems(tmp);
+
+  // Nur Einträge aus enabled Plugin
+  assertEquals(result.skills.length, 1);
+  assertEquals(result.skills[0].name, "my-skill");
+  assertEquals(result.skills[0].group, "Plugin · myplugin");
+  assertEquals(result.skills[0].read, "homefile");
+  // meta_tokens = ctxTok(estTokens("my-skill\nDoes something useful."))
+  assertEquals(result.skills[0].meta_tokens > 0, true);
+
+  assertEquals(result.agents.length, 1);
+  assertEquals(result.agents[0].name, "my-agent");
+  assertEquals(result.agents[0].group, "Plugin · myplugin");
+});
+
+// CCS-034C: collectProjectAgents — liest .claude/agents/*.md aus cwd
+Deno.test("collectProjectAgents: reads .claude/agents from cwd", async () => {
+  const { collectProjectAgents } = await import("../src/collectors/plugins.ts");
+  const tmp = await Deno.makeTempDir();
+  await Deno.mkdir(tmp + "/.claude/agents", { recursive: true });
+  await Deno.writeTextFile(
+    tmp + "/.claude/agents/project-manager.md",
+    "---\ndescription: Manages project tasks.\n---\n",
+  );
+  // Ungültiger Name (Traversal-Versuch) — darf nicht erscheinen
+  await Deno.writeTextFile(
+    tmp + "/.claude/agents/../evil.md",
+    "evil",
+  ).catch(() => { /* erwartet: Schreiben außerhalb des Dirs schlägt ggf. fehl */ });
+
+  const agents = await collectProjectAgents(tmp);
+  assertEquals(agents.length, 1);
+  assertEquals(agents[0].name, "project-manager");
+  assertEquals(agents[0].group, "Project");
+  assertEquals(agents[0].read, "project-agent");
 });

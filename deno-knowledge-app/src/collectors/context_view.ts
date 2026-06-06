@@ -22,6 +22,18 @@ const HOME = Deno.env.get("HOME") ?? "/tmp";
 export const SYS_PROMPT_TOK = 3600;
 export const SYS_TOOLS_TOK = 7900;
 
+// Kalibrierungsfaktor für datei-basierte Kategorien (Skills, Agents, Memory).
+// chars/4 unterschätzt Markdown/Deutsch um ~1.7-1.9×; empirisch gegen /context
+// kalibriert (cc-setup: Memory 17.9k→17.1k, Skills 11.1k→10.4k, total ~43k→~42k).
+// Wird NUR in der Kontext-View-Aggregation angewendet — estTokens bleibt unverändert
+// (parity-gebunden gegen knowledge.py). Alle Werte bleiben als "≈ geschätzt" gelabelt.
+export const CTX_CALIB = 1.7;
+
+/** Wendet den Kalibrierungsfaktor auf einen estTokens-Wert an. Nur für die Kontext-View. */
+export function ctxTok(est: number): number {
+  return Math.round(est * CTX_CALIB);
+}
+
 // Claude Code context window (≈ 1M-token tier). The free-space gauge is computed
 // against this.
 export const CTX_WINDOW = 1_000_000;
@@ -31,10 +43,12 @@ export interface ContextItem {
   name: string;
   tokens: number;
   desc?: string;
-  /** If present: kind for /read to show file content inline (claude-global/claude-project/homefile). */
+  /** If present: kind for /read to show file content inline (claude-global/claude-project/homefile/project-agent). */
   read?: string;
   /** Absolute file path (used together with read="homefile"). */
   readPath?: string;
+  /** Quell-Gruppe für Untergruppen in der UI (Project/User/Plugin · <name>/Built-in). */
+  group?: string;
 }
 
 /** A context category: a labelled token bucket with optional drill-down items. */

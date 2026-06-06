@@ -120,6 +120,16 @@ export async function readDoc(
         if (!under(fpath, claudeHome)) return { ok: false, error: "Pfad ausserhalb ~/.claude" };
         break;
       }
+      case "project-agent": {
+        // Projekt-Agent: <repoRoot>/.claude/agents/<name>.md — nur dort zulässig.
+        if (!/^[A-Za-z0-9._-]+$/.test(name)) return { ok: false, error: "ungültiger Agent-Name" };
+        const projAgentsRoot = join(await repoRoot(cwd), ".claude", "agents");
+        fpath = join(projAgentsRoot, name + ".md");
+        if (!under(fpath, projAgentsRoot)) {
+          return { ok: false, error: "Pfad ausserhalb .claude/agents" };
+        }
+        break;
+      }
       case "memory": {
         if (!/^[A-Za-z0-9._-]+$/.test(name)) return { ok: false, error: "ungültiger Memory-Name" };
         const memRoot = join(await repoRoot(cwd), "knowledge", "memory");
@@ -603,6 +613,10 @@ details.ctx-readable > summary::-webkit-details-marker{ display:none; }
 details.ctx-readable > summary:hover{ color:var(--fg); }
 details.ctx-readable[open] > summary .ctx-in{ color:var(--cyan); }
 .ctx-readable-body{ padding:6px 0 2px; }
+/* Quell-Gruppen-Header innerhalb Skills/Agents (Project/User/Plugin/Built-in) */
+.ctx-grp{ font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--amber);
+  padding:7px 0 3px; margin-top:4px; border-top:1px solid var(--line-2); user-select:none; }
+.ctx-grp:first-child{ border-top:0; margin-top:0; padding-top:2px; }
 `;
 
 export async function renderPage(
@@ -613,6 +627,8 @@ export async function renderPage(
     >;
     active?: string;
     view?: "overview" | "project";
+    /** Optional: initial view ID to pre-select on load (CCS-034 path-URL). */
+    initialView?: string;
     generatedAt?: string;
     loading?: boolean;
   },
@@ -663,7 +679,7 @@ export async function renderPage(
     const hasActivity = openCount > 0 || tnCount > 0 || p.cost_7d > 0 || isActive;
     const cls = isActive ? " is-active" : (hasActivity ? "" : " muted");
     const q = encodeURIComponent(p.name);
-    return `<a class="proj-i${cls}" href="/?project=${q}" title="${escape(p.path)}"` +
+    return `<a class="proj-i${cls}" href="/${q}" title="${escape(p.path)}"` +
       (hasActivity ? "" : " hidden") + ">" +
       `<span class="pn">${escape(p.name)}</span>` +
       `<span class="proj-chips">${projChips(openCount, tnCount, p.cost_7d, isActive)}</span>` +
@@ -706,7 +722,7 @@ export async function renderPage(
         `<div class="proj-sub"><nav id="mp-nav"></nav></div>`
       );
     }
-    return `<a class="proj-i${cls}" href="/?project=${q}" title="${escape(p.path)}"` +
+    return `<a class="proj-i${cls}" href="/${q}" title="${escape(p.path)}"` +
       (hasActivity ? "" : " hidden") + ">" +
       `<span class="proj-chev">${chev}</span>` +
       `<span class="pn">${escape(p.name)}</span>` +
@@ -799,6 +815,12 @@ export async function renderPage(
       "});})();</script>"
     : "";
 
+  // Inject initial view hint for path-URL routing (CCS-034).
+  // Placed before browser.js so the IIFE can read it during boot.
+  const initialViewScript = opts.initialView
+    ? `<script>window.INITIAL_VIEW = ${safeScriptJson(opts.initialView)};</script>`
+    : "";
+
   return (
     "<!DOCTYPE html>\n" +
     '<html lang="de"><head><meta charset="utf-8">' +
@@ -816,6 +838,7 @@ export async function renderPage(
     "</div>" +
     "</div>" +
     `<script>window.DATA = ${dataJson};</script>` +
+    initialViewScript +
     `<script>${browserJs}</script>` +
     quietScript +
     accordionScript +

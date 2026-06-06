@@ -11,6 +11,10 @@
 
 INPUT=$(cat)
 
+# Orchestrated headless worker: skip PKM-sync / decision:block to avoid doc loops.
+# redactor (PreToolUse) and no-auto-push (CCS-008) are separate concerns, unaffected.
+if [ "${CC_ORCHESTRATED:-}" = "1" ]; then exit 0; fi
+
 # Parse fields
 # (logging happens below once CWD is known)
 STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)

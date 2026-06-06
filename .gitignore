@@ -10,3 +10,5 @@ __pycache__/
 *_REMOTE_*
 *.orig
 .claude/worktrees/
+references/
+reference/

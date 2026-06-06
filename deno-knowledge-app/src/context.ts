@@ -15,11 +15,17 @@ import { repoRoot } from "./collectors/project.ts";
 import { discoverProjectsIn, projectRoots } from "./collectors/sidebar.ts";
 import {
   type ContextCategory,
+  ctxTok,
   CTX_WINDOW,
   memoryMdTokens,
   SYS_PROMPT_TOK,
   SYS_TOOLS_TOK,
 } from "./collectors/context_view.ts";
+import {
+  collectPluginItems,
+  collectProjectAgents,
+  type PluginItem,
+} from "./collectors/plugins.ts";
 import { fmtMtime } from "./md.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
@@ -74,11 +80,22 @@ export async function buildContext(
   const skip = opts?.skipProject === true;
   const na = { available: false, reason: "overview" };
 
+  // Plugin-Items + Project-Agents für die Kontext-View.
+  // collectPluginItems ist datei-basiert (kein Python-Spawn), daher immer ausführen.
+  // collectProjectAgents braucht cwd, wird bei skip übersprungen.
+  const [pluginItems, projectAgents] = await Promise.all([
+    collectPluginItems(home),
+    skip ? Promise.resolve([]) : collectProjectAgents(await repoRoot(cwd).catch(() => cwd)),
+  ]);
+
   return {
     generated_at: now,
     cwd,
     projects,
     active_project: activeProject,
+    plugin_skills: pluginItems.skills,
+    plugin_agents: pluginItems.agents,
+    project_agents: projectAgents,
     cards: {
       // Global layer is identical for every project → reuse the cached copy when
       // provided, otherwise collect it live (e.g. tests, cache priming).
@@ -91,7 +108,7 @@ export async function buildContext(
       tokens: skip ? na : await collectTokens(cwd),
       cost: await collectCost(),
       // MEMORY.md tokens — only for the per-project Kontext view (CCS-031).
-      // Overview view skips it (na-Stub) since the Kontext view is project-only.
+      // Overview view skips it (na-Stub) since die Kontext view ist project-only.
       memory_md: skip ? na : await memoryMdTokens(cwd),
     },
   };
@@ -165,7 +182,8 @@ export function buildData(
     scripts: (s.scripts as unknown[]) ?? [],
   }));
   const skillsTok = skills.reduce((sum, s) => sum + s.tokens, 0);
-  const skillsMetaTok = skills.reduce((sum, s) => sum + s.metaTokens, 0);
+  // _skillsMetaTok: raw meta-tokens (uncalibrated). Kontext-View nutzt ctxTok stattdessen.
+  const _skillsMetaTok = skills.reduce((sum, s) => sum + s.metaTokens, 0); void _skillsMetaTok;
 
   // Agents
   const agentItemsRaw = (g.agent_items as Array<Record<string, unknown>> | undefined) ??
@@ -181,7 +199,8 @@ export function buildData(
     size: Number(a.size_bytes ?? 0),
   }));
   const agentsTok = agents.reduce((sum, a) => sum + a.tokens, 0);
-  const agentsMetaTok = agents.reduce((sum, a) => sum + a.metaTokens, 0);
+  // _agentsMetaTok: raw meta-tokens (uncalibrated). Kontext-View nutzt ctxTok stattdessen.
+  const _agentsMetaTok = agents.reduce((sum, a) => sum + a.metaTokens, 0); void _agentsMetaTok;
 
   // Hooks
   const settings = (g.settings as Record<string, unknown>) ?? {};
@@ -430,13 +449,23 @@ export function buildData(
     return [...ms, ...loose];
   });
 
-  // ---- Kontext view (CCS-031): static initial-session context breakdown -----
+  // ---- Kontext view (CCS-034C): static initial-session context breakdown -----
   // MEMORY.md tokens come from the buildContext-collected card (best-effort).
+  // Plugin-/Project-Items kommen aus context.plugin_skills/plugin_agents/project_agents.
+  // ctxTok(estTokens) wendet den Kalibrierungsfaktor (CTX_CALIB=1.7) an — nur hier,
+  // nicht im globalen estTokens (parity-gebunden gegen knowledge.py).
+
+  const pluginSkills = (context.plugin_skills as PluginItem[] | undefined) ?? [];
+  const pluginAgents = (context.plugin_agents as PluginItem[] | undefined) ?? [];
+  const projAgents = (context.project_agents as PluginItem[] | undefined) ?? [];
+
   const memCard = (cards.memory_md && typeof cards.memory_md === "object")
     ? cards.memory_md as Record<string, unknown>
     : {};
   const memMdAvail = Boolean(memCard.available);
   const memMdTok = Number(memCard.tokens ?? 0);
+
+  // Memory items: ctxTok auf estTokens anwenden (Kalibrierung für Markdown/Deutsch)
   const memoryItems: Array<{
     name: string;
     tokens: number;
@@ -447,7 +476,7 @@ export function buildData(
   if (gdoc.tokens) {
     memoryItems.push({
       name: "CLAUDE.md (global)",
-      tokens: gdoc.tokens,
+      tokens: ctxTok(gdoc.tokens),
       desc: "~/.claude/CLAUDE.md",
       read: "claude-global",
     });
@@ -460,7 +489,7 @@ export function buildData(
     );
     memoryItems.push({
       name: "CLAUDE.md (Projekt)",
-      tokens: pdoc.tokens,
+      tokens: ctxTok(pdoc.tokens),
       desc: `${repoName}/CLAUDE.md`,
       read: "claude-project",
     });
@@ -472,13 +501,76 @@ export function buildData(
     const isUnderClaude = memPath.startsWith(claudeDir);
     memoryItems.push({
       name: "MEMORY.md",
-      tokens: memMdTok,
+      tokens: ctxTok(memMdTok),
       desc: memPath,
       // Only allow readDoc(homefile) when path is under ~/.claude (security boundary matches readDoc logic).
       ...(isUnderClaude && memPath ? { read: "homefile", readPath: memPath } : {}),
     });
   }
-  const memoryTok = gdoc.tokens + pdoc.tokens + (memMdAvail ? memMdTok : 0);
+  const memoryTok = memoryItems.reduce((s, i) => s + i.tokens, 0);
+
+  // Agents: Reihenfolge Project → User → Plugin (Built-in: keine separaten Agents)
+  // User-Agents aus collectGlobal bekommen ctxTok(metaTokens) + Gruppe "User"
+  const agentItemsCtx = [
+    // Project-Agents (aus .claude/agents/)
+    ...projAgents.map((a) => ({
+      name: a.name,
+      tokens: a.meta_tokens,
+      desc: a.description,
+      group: a.group,
+      read: a.read,
+      readPath: a.readPath,
+    })),
+    // User-Agents (~/.claude/agents/) — ctxTok auf meta_tokens (schon estTokens)
+    ...agents.map((a) => ({
+      name: String(a.name),
+      tokens: ctxTok(a.metaTokens),
+      desc: a.role,
+      group: "User",
+      read: "agent",
+    })),
+    // Plugin-Agents
+    ...pluginAgents.map((a) => ({
+      name: a.name,
+      tokens: a.meta_tokens,
+      desc: a.description,
+      group: a.group,
+      read: a.read,
+      readPath: a.readPath,
+    })),
+  ];
+  const agentsCtxTok = agentItemsCtx.reduce((s, a) => s + a.tokens, 0);
+
+  // Skills: Reihenfolge User → Plugin → Built-in
+  // Built-in: eine aggregierte Näherungszeile (~1700 tok fix, nicht lesbar)
+  const BUILTIN_SKILLS_TOK = 1700;
+  const skillItemsCtx = [
+    // User-Skills — ctxTok auf metaTokens
+    ...skills.map((s) => ({
+      name: String(s.name),
+      tokens: ctxTok(s.metaTokens),
+      desc: s.desc,
+      group: "User",
+      read: "skill",
+    })),
+    // Plugin-Skills
+    ...pluginSkills.map((s) => ({
+      name: s.name,
+      tokens: s.meta_tokens,
+      desc: s.description,
+      group: s.group,
+      read: s.read,
+      readPath: s.readPath,
+    })),
+    // Built-in: aggregierte Näherung — fix, nicht lesbar
+    {
+      name: "(Built-in ≈)",
+      tokens: BUILTIN_SKILLS_TOK,
+      desc: "run / browser / verify-ui u.a. — nicht lesbar",
+      group: "Built-in",
+    },
+  ];
+  const skillsCtxTok = skillItemsCtx.reduce((s, i) => s + i.tokens, 0);
 
   const contextCategories: ContextCategory[] = [
     {
@@ -490,21 +582,20 @@ export function buildData(
     },
     { key: "system_tools", label: "System tools", tokens: SYS_TOOLS_TOK, fixed: true, items: [] },
     {
-      // Context view uses META tokens (name + description) — that is what Claude
-      // Code loads per agent at session start (progressive disclosure), NOT the
-      // full agent file. agentsTok (full) stays the standalone-nav corpus metric.
+      // Context view: kalibrierte Meta-Tokens (ctxTok) aller Agents (Project+User+Plugin).
+      // agentsTok (full, uncalibrated) bleibt Standalone-Nav-Metrik.
       key: "agents",
       label: "Custom agents",
-      tokens: agentsMetaTok,
-      items: agents.map((a) => ({ name: String(a.name), tokens: a.metaTokens, desc: a.role })),
+      tokens: agentsCtxTok,
+      items: agentItemsCtx,
     },
     {
-      // Context view uses META tokens (name + description) per skill — session-start
-      // load only; full SKILL.md is loaded on invocation. skillsTok stays corpus.
+      // Context view: kalibrierte Meta-Tokens aller Skills (User+Plugin+Built-in).
+      // skillsTok (full, uncalibrated) bleibt Standalone-Nav-Metrik.
       key: "skills",
       label: "Skills",
-      tokens: skillsMetaTok,
-      items: skills.map((s) => ({ name: String(s.name), tokens: s.metaTokens, desc: s.desc })),
+      tokens: skillsCtxTok,
+      items: skillItemsCtx,
     },
     { key: "memory", label: "Memory files", tokens: memoryTok, items: memoryItems },
     { key: "hooks", label: "Hook-Injektion", tokens: 0, live: true, items: [] },

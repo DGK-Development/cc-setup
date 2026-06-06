@@ -1,9 +1,10 @@
 ---
 id: CCS-011
 title: 'Verwaiste Legacy-Scripts aufraeumen (prompt-sync, prompt-vault-setup)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-05 05:13'
+updated_date: '2026-06-06 19:31'
 labels:
   - cleanup
   - follow-up

@@ -32,6 +32,14 @@ echo "CWD: $PROJECT_DIR"
 echo "Vault: $VAULT_PATH"
 echo ""
 
+# Orchestrated headless worker: skip the heavy backlog/context injection.
+# The dispatcher provides focused context; redactor (PreToolUse) is a separate
+# hook and stays active. Keeps the log header above for traceability.
+if [ "${CC_ORCHESTRATED:-}" = "1" ]; then
+    echo "(orchestrated worker — context injected by dispatcher)"
+    exit 0
+fi
+
 # --- Backlog-Stand (auto, PRIMÄR): Milestones + In-Progress + nächste To-Dos ---
 # Backlog.md-Tasks sind die primären Arbeits-Items. Read-only, few-token, greift
 # in JEDEM Repo mit backlog/ — unabhaengig vom Vault-Projekt-Match unten. No-op

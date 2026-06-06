@@ -20,6 +20,10 @@ INPUT=$(cat)
 PAI_DIR="${PAI_DIR:-$HOME/.claude}"
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Orchestrated headless worker: skip PKM-sync / decision:block to avoid doc loops.
+# redactor (PreToolUse) and no-auto-push (CCS-008) are separate concerns, unaffected.
+if [ "${CC_ORCHESTRATED:-}" = "1" ]; then exit 0; fi
+
 run_hook_stderr() {
   local hook="$1"
   [ -x "$hook" ] || return 0

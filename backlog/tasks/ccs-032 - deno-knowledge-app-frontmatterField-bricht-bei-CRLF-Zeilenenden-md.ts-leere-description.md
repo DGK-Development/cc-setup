@@ -3,9 +3,10 @@ id: CCS-032
 title: >-
   deno-knowledge-app: frontmatterField bricht bei CRLF-Zeilenenden (md.ts) ->
   leere description
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-06-06 07:22'
+updated_date: '2026-06-06 19:33'
 labels: []
 dependencies: []
 ordinal: 75000

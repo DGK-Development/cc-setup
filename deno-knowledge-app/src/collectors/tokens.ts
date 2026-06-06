@@ -1,129 +1,293 @@
-// collect_tokens — mirrors knowledge.py collect_tokens
-// Last finished session (in/out/cache) + rolling 7-day sum (total + count).
+// collect_tokens — native Deno reimplementation (kein session_analyze.py/uv).
+// Liest Session-JSONLs direkt aus ~/.claude/projects/<encodedCwd>/*.jsonl und
+// berechnet token-stats, errors, repeats und tool_freq exakt wie session_analyze.py.
+//
+// Parity-Notiz: Die Logik folgt session_analyze.py Zeile für Zeile:
+//   - turns = Anzahl assistant-Eintraege MIT usage-Feld (wie _extract_token_stats)
+//   - errors = tool_result entries mit is_error=true (alle Tools, nicht nur Bash)
+//   - repeats = Bash-Commands die ≥3× insgesamt aufgerufen werden (wie _extract_waste_signals)
+//   - tool_freq = Counter über assistant-entries/tool_use-items (wie _extract_tool_frequencies)
 
-import { parseJson, run } from "../shared.ts";
+import { estCost, encodeCwd } from "./sessions_native.ts";
 import { fmtMtime } from "../md.ts";
 import { join } from "@std/path";
 
-const SCRIPTS_DIR = join(new URL("../../..", import.meta.url).pathname, "scripts");
+// Schwellwert: Bash-Command muss ≥ diesen Wert erreichen, um als "repeated" zu gelten.
+const REPEATED_CMD_THRESHOLD = 3;
 
-// Rough per-MTok USD rates (Claude Sonnet-4 tier). Labelled "≈" everywhere.
-const RATE_INPUT = 3.0;
-const RATE_OUTPUT = 15.0;
-const RATE_CACHE_WRITE = 3.75;
-const RATE_CACHE_READ = 0.30;
-
-function estCost(inp: number, out: number, cacheRead: number, cacheCreation: number): number {
-  return (inp * RATE_INPUT + out * RATE_OUTPUT + cacheCreation * RATE_CACHE_WRITE +
-    cacheRead * RATE_CACHE_READ) / 1_000_000;
+/** Pfad zum Sessions-Verzeichnis fuer ein bestimmtes CWD. */
+function sessionsDir(cwd: string): string {
+  const base = Deno.env.get("CLAUDE_PROJECTS_DIR") ??
+    `${Deno.env.get("HOME") ?? "/tmp"}/.claude/projects`;
+  return join(base, encodeCwd(cwd));
 }
 
-function encodeCwd(cwd: string): string {
-  return cwd.replace(/[^A-Za-z0-9]/g, "-");
+interface UsageLine {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  hasTurn: boolean; // true wenn type=="assistant" UND usage-Feld vorhanden
 }
 
-async function sessionMtimes(cwd: string): Promise<Map<string, number>> {
-  const projectsDir = Deno.env.get("CLAUDE_PROJECTS_DIR") ??
-    `${Deno.env.get("HOME")}/.claude/projects`;
-  const sessDir = join(projectsDir, encodeCwd(cwd));
+interface ToolUse {
+  name: string;
+  command: string; // command (Bash) oder file_path (Read/Write) aus input
+  sessionId: string;
+}
+
+/** Parst eine einzelne JSONL-Datei und gibt alle relevanten Signale zurueck. */
+async function parseSessionFile(path: string, sessionId: string): Promise<{
+  usage: UsageLine[];
+  toolUses: Map<string, ToolUse>; // tool_use_id -> ToolUse
+  failedEntries: Array<{ tool: string; command: string; errorPreview: string }>;
+  toolFreq: Map<string, number>;
+  bashCommands: string[]; // alle Bash-Commands (fuer repeated-Berechnung)
+}> {
+  const usage: UsageLine[] = [];
+  const toolUses = new Map<string, ToolUse>();
+  const failedEntries: Array<{ tool: string; command: string; errorPreview: string }> = [];
+  const toolFreqMap = new Map<string, number>();
+  const bashCommands: string[] = [];
+
+  let text: string;
+  try {
+    text = await Deno.readTextFile(path);
+  } catch {
+    return { usage, toolUses, failedEntries, toolFreq: toolFreqMap, bashCommands };
+  }
+
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const entryType = String(entry.type ?? "");
+    const msg = (entry.message && typeof entry.message === "object")
+      ? entry.message as Record<string, unknown>
+      : null;
+
+    if (entryType === "assistant" && msg) {
+      // Token-Stats: turns = assistant-entries mit usage-Feld
+      const rawUsage = msg.usage;
+      const hasUsage = rawUsage && typeof rawUsage === "object";
+      const u = hasUsage ? rawUsage as Record<string, unknown> : null;
+      usage.push({
+        input: u ? Number(u.input_tokens ?? 0) : 0,
+        output: u ? Number(u.output_tokens ?? 0) : 0,
+        cacheRead: u ? Number(u.cache_read_input_tokens ?? 0) : 0,
+        cacheCreation: u ? Number(u.cache_creation_input_tokens ?? 0) : 0,
+        hasTurn: !!hasUsage,
+      });
+
+      // Tool-Uses aus dem Content-Array extrahieren
+      const content = Array.isArray(msg.content) ? msg.content as unknown[] : [];
+      for (const item of content) {
+        if (!item || typeof item !== "object") continue;
+        const it = item as Record<string, unknown>;
+        if (it.type !== "tool_use") continue;
+
+        const tuId = String(it.id ?? "");
+        const toolName = String(it.name ?? "");
+        const inp = (it.input && typeof it.input === "object")
+          ? it.input as Record<string, unknown>
+          : {};
+        // command fuer Bash, file_path fuer Read/Write
+        const cmd = String(inp.command ?? inp.file_path ?? "");
+
+        if (tuId) {
+          toolUses.set(tuId, { name: toolName, command: cmd, sessionId });
+        }
+
+        // Tool-Frequenz zaehlen (wie _extract_tool_frequencies)
+        toolFreqMap.set(toolName, (toolFreqMap.get(toolName) ?? 0) + 1);
+
+        // Bash-Commands fuer repeated-Berechnung sammeln
+        if (toolName === "Bash" && cmd.trim()) {
+          bashCommands.push(cmd.trim());
+        }
+      }
+    } else if (entryType === "user" && msg) {
+      // Fehler: tool_result entries mit is_error=true
+      const content = Array.isArray(msg.content) ? msg.content as unknown[] : [];
+      for (const item of content) {
+        if (!item || typeof item !== "object") continue;
+        const it = item as Record<string, unknown>;
+        if (it.type !== "tool_result") continue;
+        if (!it.is_error) continue;
+
+        const tuId = String(it.tool_use_id ?? "");
+        const tu = toolUses.get(tuId);
+        const errorContent = it.content;
+        const errorPreview = String(
+          Array.isArray(errorContent)
+            ? (errorContent[0] && typeof errorContent[0] === "object"
+              ? (errorContent[0] as Record<string, unknown>).text ?? ""
+              : errorContent[0] ?? "")
+            : errorContent ?? "",
+        ).slice(0, 300);
+
+        failedEntries.push({
+          tool: tu?.name ?? "",
+          command: tu?.command ?? "",
+          errorPreview,
+        });
+      }
+    }
+  }
+
+  return { usage, toolUses, failedEntries, toolFreq: toolFreqMap, bashCommands };
+}
+
+/** Liest mtimes aller JSONL-Dateien fuer ein Projekt. */
+async function sessionMtimes(dir: string): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   try {
-    for await (const e of Deno.readDir(sessDir)) {
+    for await (const e of Deno.readDir(dir)) {
       if (!e.isFile || !e.name.endsWith(".jsonl")) continue;
       try {
-        const stat = await Deno.stat(join(sessDir, e.name));
-        out.set(e.name.replace(/\.jsonl$/, ""), stat.mtime?.getTime() ?? 0 / 1000);
+        const stat = await Deno.stat(join(dir, e.name));
+        out.set(e.name.replace(/\.jsonl$/, ""), stat.mtime?.getTime() ?? 0);
       } catch { /* skip */ }
     }
-  } catch { /* dir doesn't exist */ }
+  } catch { /* dir existiert nicht */ }
   return out;
 }
 
-interface SessionAnalyzeOutput {
-  token_stats?: {
-    per_session?: Array<Record<string, unknown>>;
-  };
-  failed_commands?: Array<Record<string, unknown>>;
-  waste_signals?: { repeated_commands?: Array<Record<string, unknown>> };
-  tool_frequencies?: Record<string, number>;
-}
-
-async function sessionAnalyzeJson(cwd: string): Promise<SessionAnalyzeOutput | null> {
-  const saPath = join(SCRIPTS_DIR, "session_analyze.py");
-  try {
-    await Deno.stat(saPath);
-  } catch {
-    return null;
-  }
-  const out = await run(
-    ["uv", "run", "--script", saPath, "--output-json", "--cwd", cwd],
-    { cwd },
-  );
-  return parseJson<SessionAnalyzeOutput>(out);
-}
-
-function getMtime(mtimes: Map<string, number>, s: Record<string, unknown>): number {
-  const sid = String(s.session_id ?? "");
-  return mtimes.get(sid) ?? 0;
-}
-
+/** Haupt-Export: native Version von collectTokens, kein Python-Spawn. */
 export async function collectTokens(cwd: string): Promise<Record<string, unknown>> {
   try {
-    const agg = await sessionAnalyzeJson(cwd);
-    if (agg === null) {
-      return { available: false, reason: "session_analyze.py unavailable" };
+    const dir = sessionsDir(cwd);
+    const mtimes = await sessionMtimes(dir);
+
+    // Alle JSONL-Dateien auflisten
+    const files: string[] = [];
+    try {
+      for await (const e of Deno.readDir(dir)) {
+        if (e.isFile && e.name.endsWith(".jsonl")) {
+          files.push(e.name);
+        }
+      }
+    } catch {
+      return { available: true, last_session: null, week: null, sessions: [] };
     }
-    const perSession = agg.token_stats?.per_session ?? [];
+
+    if (!files.length) {
+      return { available: true, last_session: null, week: null, sessions: [] };
+    }
+
+    // Aggregierte Strukturen ueber alle Sessions
+    const allFailed: Array<{ tool: string; command: string; errorPreview: string }> = [];
+    // command -> Gesamtzahl Aufrufe (fuer repeated-Berechnung)
+    const bashCmdCount = new Map<string, number>();
+    // command -> Set of session_ids (fuer sessions-Liste in repeats)
+    const bashCmdSessions = new Map<string, Set<string>>();
+    const globalToolFreq = new Map<string, number>();
+
+    // Per-Session Stats
+    interface SessionStat {
+      sessionId: string;
+      turns: number;
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheCreation: number;
+      failed: Array<{ tool: string; command: string; errorPreview: string }>;
+      mtime: number;
+    }
+    const perSession: SessionStat[] = [];
+
+    // Alle Dateien sequenziell parsen (surgical: kein paralleles Spawnen)
+    for (const fname of files) {
+      const sessionId = fname.replace(/\.jsonl$/, "");
+      const fpath = join(dir, fname);
+      const { usage, failedEntries, toolFreq, bashCommands } = await parseSessionFile(
+        fpath,
+        sessionId,
+      );
+
+      // Token-Summen + turns
+      let inp = 0, out = 0, cr = 0, cc = 0, turns = 0;
+      for (const u of usage) {
+        if (u.hasTurn) turns++;
+        inp += u.input;
+        out += u.output;
+        cr += u.cacheRead;
+        cc += u.cacheCreation;
+      }
+
+      // Fehler dieser Session
+      allFailed.push(...failedEntries);
+
+      // Tool-Frequenzen aggregieren
+      for (const [name, cnt] of toolFreq) {
+        globalToolFreq.set(name, (globalToolFreq.get(name) ?? 0) + cnt);
+      }
+
+      // Bash-Commands zaehlen (fuer repeated-Berechnung cross-session)
+      for (const cmd of bashCommands) {
+        bashCmdCount.set(cmd, (bashCmdCount.get(cmd) ?? 0) + 1);
+        if (!bashCmdSessions.has(cmd)) bashCmdSessions.set(cmd, new Set());
+        bashCmdSessions.get(cmd)!.add(sessionId);
+      }
+
+      perSession.push({
+        sessionId,
+        turns,
+        input: inp,
+        output: out,
+        cacheRead: cr,
+        cacheCreation: cc,
+        failed: failedEntries,
+        mtime: mtimes.get(sessionId) ?? 0,
+      });
+    }
+
     if (!perSession.length) {
       return { available: true, last_session: null, week: null, sessions: [] };
     }
 
-    const mtimes = await sessionMtimes(cwd);
-    const now = Date.now();
-    const cutoff = now - 7 * 24 * 3600 * 1000;
+    // repeated_commands: Commands mit >= REPEATED_CMD_THRESHOLD Aufrufen
+    // Sortiert nach count absteigend (wie session_analyze.py)
+    const repeatedCommands = Array.from(bashCmdCount.entries())
+      .filter(([, cnt]) => cnt >= REPEATED_CMD_THRESHOLD)
+      .map(([cmd, cnt]) => ({
+        command: cmd,
+        count: cnt,
+        sessions: Array.from(bashCmdSessions.get(cmd) ?? []).sort(),
+      }))
+      .sort((a, b) => b.count - a.count);
 
-    // Last session = highest mtime; fallback to last in list order.
-    const last = mtimes.size > 0
-      ? perSession.reduce((best, s) => getMtime(mtimes, s) > getMtime(mtimes, best) ? s : best)
-      : perSession[perSession.length - 1];
-
+    // Last Session = neuestem mtime
+    const lastStat = perSession.reduce((best, s) => s.mtime > best.mtime ? s : best);
     const lastSession = {
-      session_id: String(last.session_id ?? "").slice(0, 8),
-      turns: Number(last.turns ?? 0),
-      input: Number(last.total_input_tokens ?? 0),
-      output: Number(last.total_output_tokens ?? 0),
-      cache_read: Number(last.total_cache_read_tokens ?? 0),
-      cache_creation: Number(last.total_cache_creation_tokens ?? 0),
+      session_id: lastStat.sessionId.slice(0, 8),
+      turns: lastStat.turns,
+      input: lastStat.input,
+      output: lastStat.output,
+      cache_read: lastStat.cacheRead,
+      cache_creation: lastStat.cacheCreation,
       cost: Math.round(
-        estCost(
-          Number(last.total_input_tokens ?? 0),
-          Number(last.total_output_tokens ?? 0),
-          Number(last.total_cache_read_tokens ?? 0),
-          Number(last.total_cache_creation_tokens ?? 0),
-        ) * 10000,
+        estCost(lastStat.input, lastStat.output, lastStat.cacheRead, lastStat.cacheCreation) *
+          10000,
       ) / 10000,
     };
 
-    // Clustering inputs indexed by full session id
-    const failedAll = agg.failed_commands ?? [];
-    const repeatedAll = agg.waste_signals?.repeated_commands ?? [];
-    const failedBySess = new Map<string, Array<Record<string, unknown>>>();
-    for (const fc of failedAll) {
-      const sid = String(fc.session_id ?? "");
-      if (!failedBySess.has(sid)) failedBySess.set(sid, []);
-      failedBySess.get(sid)!.push(fc);
-    }
-
     // Rolling 7-day window
+    const now = Date.now();
+    const cutoff = now - 7 * 24 * 3600 * 1000;
     let wkIn = 0, wkOut = 0, wkCr = 0, wkCc = 0, wkCount = 0;
     for (const s of perSession) {
-      const mt = mtimes.get(String(s.session_id ?? "")) ?? null;
-      if (mt === null || mt < cutoff) continue;
+      if (s.mtime < cutoff) continue;
       wkCount++;
-      wkIn += Number(s.total_input_tokens ?? 0);
-      wkOut += Number(s.total_output_tokens ?? 0);
-      wkCr += Number(s.total_cache_read_tokens ?? 0);
-      wkCc += Number(s.total_cache_creation_tokens ?? 0);
+      wkIn += s.input;
+      wkOut += s.output;
+      wkCr += s.cacheRead;
+      wkCc += s.cacheCreation;
     }
     const week = {
       session_count: wkCount,
@@ -134,53 +298,53 @@ export async function collectTokens(cwd: string): Promise<Record<string, unknown
       total: wkIn + wkOut + wkCr + wkCc,
     };
 
-    // Full session list (newest first, capped at 30)
-    const sessions = perSession.map((s) => {
-      const sid = String(s.session_id ?? "");
-      const mt = mtimes.get(sid) ?? null;
-      const inp = Number(s.total_input_tokens ?? 0);
-      const out = Number(s.total_output_tokens ?? 0);
-      const cr = Number(s.total_cache_read_tokens ?? 0);
-      const cc = Number(s.total_cache_creation_tokens ?? 0);
-      const errs = failedBySess.get(sid) ?? [];
-      const reps = repeatedAll
-        .filter((r) => (r.sessions as string[] ?? []).includes(sid))
-        .sort((a, b) => Number(b.count ?? 0) - Number(a.count ?? 0));
-      return {
-        session_id: sid.slice(0, 8),
-        turns: Number(s.turns ?? 0),
-        input: inp,
-        output: out,
-        cache_read: cr,
-        cache_creation: cc,
-        total: inp + out + cr + cc,
-        cost: Math.round(estCost(inp, out, cr, cc) * 10000) / 10000,
-        date: fmtMtime(mt !== null ? mt / 1000 : null),
-        error_count: errs.length,
-        errors: errs.slice(0, 12).map((e) => ({
-          tool: String(e.tool ?? ""),
-          command: String(e.command ?? "").slice(0, 200),
-          preview: String(e.error_preview ?? "").slice(0, 240),
-        })),
-        repeat_count: reps.length,
-        repeats: reps.slice(0, 12).map((r) => ({
-          command: String(r.command ?? "").slice(0, 200),
-          count: Number(r.count ?? 0),
-        })),
-        _mt: mt ?? 0,
-      };
-    });
-    sessions.sort((a, b) => b._mt - a._mt);
-    const result = sessions.slice(0, 30).map(({ _mt: _, ...rest }) => rest);
+    // sessions[] aufbauen aus perSession
+    // Fehler sind bereits pro Session in perSession.failed gespeichert (via parseSessionFile)
+    const sessions = perSession
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 30)
+      .map((s) => {
+        const reps = repeatedCommands
+          .filter((r) => r.sessions.includes(s.sessionId))
+          .slice(0, 12)
+          .map((r) => ({ command: r.command.slice(0, 200), count: r.count }));
+        return {
+          session_id: s.sessionId.slice(0, 8),
+          turns: s.turns,
+          input: s.input,
+          output: s.output,
+          cache_read: s.cacheRead,
+          cache_creation: s.cacheCreation,
+          total: s.input + s.output + s.cacheRead + s.cacheCreation,
+          cost: Math.round(
+            estCost(s.input, s.output, s.cacheRead, s.cacheCreation) * 10000,
+          ) / 10000,
+          date: fmtMtime(s.mtime > 0 ? s.mtime / 1000 : null),
+          error_count: s.failed.length,
+          errors: s.failed.slice(0, 12).map((e) => ({
+            tool: e.tool,
+            command: e.command.slice(0, 200),
+            preview: e.errorPreview.slice(0, 240),
+          })),
+          repeat_count: reps.length,
+          repeats: reps,
+        };
+      });
+
+    // tool_freq als plain Record (sortiert nach count fuer Konsistenz)
+    const toolFreqObj: Record<string, number> = {};
+    for (const [name, cnt] of Array.from(globalToolFreq.entries()).sort(([, a], [, b]) => b - a)) {
+      toolFreqObj[name] = cnt;
+    }
 
     return {
       available: true,
       last_session: lastSession,
       week,
-      sessions: result,
-      errors_total: failedAll.length,
-      repeats_total: repeatedAll.length,
-      tool_freq: agg.tool_frequencies ?? {},
+      sessions,
+      errors_total: allFailed.length,
+      repeats_total: repeatedCommands.length,
+      tool_freq: toolFreqObj,
     };
   } catch (exc) {
     return { available: false, reason: `collect_tokens failed: ${exc}` };

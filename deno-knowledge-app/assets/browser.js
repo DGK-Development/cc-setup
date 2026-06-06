@@ -123,6 +123,20 @@
   var mp = document.getElementById("mp");
   var state = { coll: null, idx: 0 };
 
+  // suppressPush: set to true during boot replaceState and popstate handler so
+  // select() does not push an extra history entry in those cases (CCS-034).
+  var suppressPush = false;
+
+  /** Map a view ID to the canonical path for history.pushState (CCS-034).
+   *  - With active project: /<project>[/<view>] (omit /ov as that is the default)
+   *  - Without active project (overview): always "/" (overview sub-views stay at /)
+   */
+  function viewToPath(id) {
+    if (!ACTIVE) return "/";
+    var base = "/" + encodeURIComponent(ACTIVE);
+    return (id && id !== "ov") ? base + "/" + encodeURIComponent(id) : base;
+  }
+
   // Breadcrumb elements (may be null in server_test minimal HTML)
   var crumbHere  = document.getElementById("crumb-here");
   var crumbScope = document.getElementById("crumb-scope");
@@ -187,29 +201,23 @@
       state.idx = 0;
       setCrumb("Backlog", "· Projekt");
       renderBoard();
-      return;
-    }
-    if (id === "tn") {
+    } else if (id === "tn") {
       mp.classList.remove("is-overview");
       mp.classList.add("is-board");
       state.coll = "tn";
       state.idx = 0;
       setCrumb("tn-Board", "· Projekt");
       renderTnBoard();
-      return;
-    }
-    if (id === "git") {
+    } else if (id === "git") {
       mp.classList.remove("is-overview"); state.coll = null;
       setCrumb("Git", "· Projekt");
-      renderGit(); return;
-    }
-    if (id === "context") {
+      renderGit();
+    } else if (id === "context") {
       // Context view: hide list column (full-width detail panel)
       mp.classList.add("is-overview"); state.coll = null;
       setCrumb("Kontext", "· Projekt");
-      renderContext(); return;
-    }
-    if (SPECIAL[id]) {
+      renderContext();
+    } else if (SPECIAL[id]) {
       mp.classList.add("is-overview");
       if (id === "ov") {
         // Route: project view → renderProjectOverview; overview view → renderOverview
@@ -230,22 +238,33 @@
         setCrumb("Backlog projektweit", "· alle Projekte");
         renderMilestonesBoard();
       }
-      return;
+    } else {
+      mp.classList.remove("is-overview");
+      state.coll = id; state.idx = 0;
+      // Update breadcrumb label from the collection title
+      var coll = COLL[id];
+      if (coll) {
+        var scopeLabel = coll.scope === "global" ? "· alle Projekte · global"
+          : coll.scope === "projekt" ? "· Projekt"
+          : coll.scope === "wissen" ? "· Projekt"
+          : coll.scope === "backlog" ? "· Projekt"
+          : coll.scope === "usage" ? "· Projekt"
+          : "· Projekt";
+        setCrumb(coll.title || id, scopeLabel);
+      }
+      renderList(""); selectItem(0);
     }
-    mp.classList.remove("is-overview");
-    state.coll = id; state.idx = 0;
-    // Update breadcrumb label from the collection title
-    var coll = COLL[id];
-    if (coll) {
-      var scopeLabel = coll.scope === "global" ? "· alle Projekte · global"
-        : coll.scope === "projekt" ? "· Projekt"
-        : coll.scope === "wissen" ? "· Projekt"
-        : coll.scope === "backlog" ? "· Projekt"
-        : coll.scope === "usage" ? "· Projekt"
-        : "· Projekt";
-      setCrumb(coll.title || id, scopeLabel);
+
+    // Push a new history entry for this view unless we are suppressing (boot or popstate).
+    // Only push when the path would actually change — avoids duplicate entries.
+    if (!suppressPush) {
+      try {
+        var newPath = viewToPath(id);
+        if (newPath !== window.location.pathname) {
+          history.pushState({ view: id }, "", newPath);
+        }
+      } catch (e) { /* history API not available in test env */ }
     }
-    renderList(""); selectItem(0);
   }
 
   /* ---------- backlog: kanban board (drag-drop → status persist) ---------- */
@@ -1178,29 +1197,78 @@
             ? '<pre class="ctx-hookout">' + esc(c.output) + "</pre>"
             : '<div class="ctx-item ctx-loading">' + (c.loaded ? "(kein Output)" : "Hook wird live ausgeführt…") + "</div>";
         } else if (c.items.length) {
-          body = c.items.map(function (it) {
-            if (it.read) {
-              // Readable item: collapsible <details> with inline file viewer
-              var readParams = {};
-              if (it.readPath) readParams = { path: it.readPath };
-              var detailId = "ctx-rd-" + esc(it.name).replace(/[^A-Za-z0-9]/g, "-");
-              return '<details class="ctx-readable" id="' + detailId + '">' +
-                '<summary><span class="ctx-in">' + esc(it.name) + "</span>" +
+          // Items nach Gruppe rendern (Project → User → Plugin → Built-in).
+          // Wenn kein item.group gesetzt → flache Liste wie bisher.
+          var hasGroups = c.items.some(function(it) { return it.group; });
+          if (hasGroups) {
+            // Gruppen sammeln in stabiler Reihenfolge
+            var groupOrder = ["Project", "User", "Built-in"];
+            var grouped = {};
+            var orderedGroups = [];
+            c.items.forEach(function(it) {
+              var g = it.group || "";
+              if (!grouped[g]) {
+                grouped[g] = [];
+                // Plugin-Gruppen (nicht in groupOrder) am Ende vor Built-in einsortieren
+                if (groupOrder.indexOf(g) < 0) {
+                  // Plugin-Gruppen nach User, vor Built-in
+                  orderedGroups.push(g);
+                }
+              }
+              grouped[g].push(it);
+            });
+            // Finale Reihenfolge: Project, User, Plugin-Gruppen (sortiert), Built-in
+            var finalOrder = [];
+            ["Project", "User"].forEach(function(g) { if (grouped[g]) finalOrder.push(g); });
+            orderedGroups.sort().forEach(function(g) { finalOrder.push(g); });
+            if (grouped["Built-in"]) finalOrder.push("Built-in");
+
+            body = finalOrder.map(function(grp) {
+              var items = grouped[grp] || [];
+              if (!items.length) return "";
+              var header = '<div class="ctx-grp">' + esc(grp) + '</div>';
+              var rows = items.map(function(it) {
+                if (it.read) {
+                  var detailId = "ctx-rd-" + esc(it.name).replace(/[^A-Za-z0-9]/g, "-");
+                  return '<details class="ctx-readable" id="' + detailId + '">' +
+                    '<summary><span class="ctx-in">' + esc(it.name) + "</span>" +
+                    (it.desc ? '<span class="ctx-id">' + esc(it.desc) + "</span>" : "") +
+                    '<span class="ctx-it">~' + ktok(it.tokens) + " tok</span></summary>" +
+                    '<div class="ctx-readable-body" data-read="' + esc(it.read) + '"' +
+                      (it.readPath ? ' data-path="' + esc(it.readPath) + '"' : '') +
+                    '></div>' +
+                    "</details>";
+                }
+                return '<div class="ctx-item"><span class="ctx-in">' + esc(it.name) + "</span>" +
+                  (it.desc ? '<span class="ctx-id">' + esc(it.desc) + "</span>" : "") +
+                  '<span class="ctx-it">~' + ktok(it.tokens) + " tok</span></div>";
+              }).join("");
+              return header + rows;
+            }).join("");
+          } else {
+            body = c.items.map(function (it) {
+              if (it.read) {
+                var detailId = "ctx-rd-" + esc(it.name).replace(/[^A-Za-z0-9]/g, "-");
+                return '<details class="ctx-readable" id="' + detailId + '">' +
+                  '<summary><span class="ctx-in">' + esc(it.name) + "</span>" +
+                  (it.desc ? '<span class="ctx-id">' + esc(it.desc) + "</span>" : "") +
+                  '<span class="ctx-it">~' + ktok(it.tokens) + " tok</span></summary>" +
+                  '<div class="ctx-readable-body" data-read="' + esc(it.read) + '"' +
+                    (it.readPath ? ' data-path="' + esc(it.readPath) + '"' : '') +
+                  '></div>' +
+                  "</details>";
+              }
+              return '<div class="ctx-item"><span class="ctx-in">' + esc(it.name) + "</span>" +
                 (it.desc ? '<span class="ctx-id">' + esc(it.desc) + "</span>" : "") +
-                '<span class="ctx-it">~' + ktok(it.tokens) + " tok</span></summary>" +
-                '<div class="ctx-readable-body" data-read="' + esc(it.read) + '"' +
-                  (it.readPath ? ' data-path="' + esc(it.readPath) + '"' : '') +
-                '></div>' +
-                "</details>";
-            }
-            return '<div class="ctx-item"><span class="ctx-in">' + esc(it.name) + "</span>" +
-              (it.desc ? '<span class="ctx-id">' + esc(it.desc) + "</span>" : "") +
-              '<span class="ctx-it">~' + ktok(it.tokens) + " tok</span></div>";
-          }).join("");
+                '<span class="ctx-it">~' + ktok(it.tokens) + " tok</span></div>";
+            }).join("");
+          }
         } else {
           body = '<div class="ctx-item ctx-empty">— keine Einzel-Items</div>';
         }
-        return '<details class="ctx-cat"' + (c.live && !c.loaded ? " open" : "") + '>' +
+        // Alle Kategorien default eingeklappt — kein auto-open für live-Kategorie
+        // (Live-Hook läuft trotzdem im Hintergrund, öffnet sich aber nicht automatisch).
+        return '<details class="ctx-cat">' +
           '<summary>' + swatch + '<span class="ctx-l">' + esc(c.label) + "</span>" + badge +
             '<span class="ctx-bar-mini"><i style="width:' + pct + '%;background:' + CTX_COLORS[i % CTX_COLORS.length] + '"></i></span>' +
             '<span class="ctx-t">~' + ktok(c.tokens) + " tok</span>" +
@@ -1595,6 +1663,56 @@
     sync();
   })();
 
-  /* boot — land on the first nav entry (overview view: Milestones; project view: Übersicht) */
-  select((NAV[0] && NAV[0].items && NAV[0].items[0] && NAV[0].items[0].id) || "ov");
+  /* popstate: user pressed Back/Forward — restore the view from the history state (CCS-034).
+     If the popped URL belongs to a different project, reload the full page so the server
+     can build DATA for that project. */
+  window.addEventListener("popstate", function (e) {
+    var state = e.state;
+    var viewId = state && state.view ? String(state.view) : "";
+    // Parse the current pathname to detect a project change
+    var segs = window.location.pathname.slice(1).split("/").filter(function (s) { return s.length > 0; });
+    var pathProject = segs.length >= 1 ? decodeURIComponent(segs[0]) : "";
+    // If the path project differs from the active project, reload (server builds DATA for that project)
+    if (ACTIVE && pathProject && pathProject !== ACTIVE) {
+      window.location.reload();
+      return;
+    }
+    if (!ACTIVE && pathProject) {
+      window.location.reload();
+      return;
+    }
+    // Same project — restore view client-side without adding another history entry
+    suppressPush = true;
+    try { select(viewId || ((NAV[0] && NAV[0].items && NAV[0].items[0] && NAV[0].items[0].id) || "ov")); }
+    finally { suppressPush = false; }
+  });
+
+  /* boot — determine initial view:
+   *  1. window.INITIAL_VIEW (set by server for path-URL loads, CCS-034)
+   *  2. fallback to first nav entry (existing behaviour)
+   * Use replaceState so the initial load doesn't add an extra history entry. */
+  (function () {
+    var firstNavId = (NAV[0] && NAV[0].items && NAV[0].items[0] && NAV[0].items[0].id) || "ov";
+    // Collect all known nav IDs for validation
+    var allNavIds = {};
+    NAV.forEach(function (grp) {
+      (grp.items || []).forEach(function (it) { if (it.id) allNavIds[it.id] = true; });
+    });
+    // SPECIAL IDs are also valid targets (boards, milestones, cost, context, ov)
+    var allSpecial = { ov: true, cost: true, boards: true, milestones: true, context: true };
+
+    var hint = (typeof window !== "undefined" && window.INITIAL_VIEW) ? String(window.INITIAL_VIEW) : "";
+    var bootId = (hint && (allNavIds[hint] || allSpecial[hint] || hint === "backlog" || hint === "tn" || hint === "git")) ? hint : firstNavId;
+
+    suppressPush = true;
+    try {
+      select(bootId);
+      // Replace the initial history entry with the canonical path for this view
+      try {
+        history.replaceState({ view: bootId }, "", viewToPath(bootId));
+      } catch (e) { /* history API not available in test env */ }
+    } finally {
+      suppressPush = false;
+    }
+  })();
 })();

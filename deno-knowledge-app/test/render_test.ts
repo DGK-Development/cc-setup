@@ -80,6 +80,32 @@ Deno.test("readDoc returns empty-string mtime gracefully for non-existent stat (
   assertEquals(result.ok, false);
 });
 
+// CCS-034: renderPage injects window.INITIAL_VIEW when initialView is set
+Deno.test("renderPage injects window.INITIAL_VIEW when initialView provided (CCS-034)", async () => {
+  const html = await renderPage({
+    cwd: "/tmp",
+    view: "project",
+    active: "proj-a",
+    initialView: "context",
+    sidebar: [{ name: "proj-a", path: "/proj-a", open_tasks: 0, cost_7d: 0, tn: 0 }],
+  });
+  // The dedicated assignment script tag must be present with the view value
+  assertStringIncludes(html, 'window.INITIAL_VIEW = ');
+  // safeScriptJson serializes the string "context" — check the serialized form
+  assertStringIncludes(html, '"context"');
+});
+
+// CCS-034: renderPage does NOT inject the INITIAL_VIEW <script> tag when initialView is absent.
+// Note: browser.js itself reads window.INITIAL_VIEW so the string always appears in the
+// inlined JS, but the dedicated assignment script must NOT be present.
+Deno.test("renderPage does not inject INITIAL_VIEW script tag when initialView absent (CCS-034)", async () => {
+  const html = await renderPage({ cwd: "/tmp" });
+  // The injected script tag has the form: window.INITIAL_VIEW = "..."
+  // We check that the assignment form is not present (the browser.js read-reference is fine)
+  const hasAssignment = html.includes("window.INITIAL_VIEW =");
+  assertEquals(hasAssignment, false);
+});
+
 // CCS-029: renderPage uses live overview counts for the active project row in project view
 Deno.test("renderPage project-view: active project row shows live backlog_open not fallback (CCS-029)", async () => {
   // Sidebar has open_tasks:0/tn:0 (cache fallback scenario = never-primed cache)
@@ -110,6 +136,38 @@ Deno.test("renderPage project-view: active project row shows live backlog_open n
   // Active project row must show 7 (live backlog_open from cards.backlog.tasks), not 0 (fallback)
   // New chip markup: <span class="ch open">7 offen</span>
   assertStringIncludes(html, '<span class="ch open">7 offen</span>');
+});
+
+// CCS-034C: readDoc kind "project-agent" — gültig/ungültig/Traversal-Abwehr
+Deno.test("readDoc project-agent: reads .claude/agents/<name>.md from repoRoot", async () => {
+  const tmp = await Deno.makeTempDir();
+  await Deno.mkdir(tmp + "/.claude/agents", { recursive: true });
+  await Deno.writeTextFile(tmp + "/.claude/agents/my-agent.md", "---\ndescription: test\n---\n# Agent\n");
+  // repoRoot braucht ein Git-Repo ODER gibt cwd zurück (Fallback im Code).
+  // Hier übergeben wir tmp direkt als cwd — repoRoot(tmp) gibt tmp zurück wenn kein .git vorhanden.
+  const result = await readDoc(tmp, tmp, "project-agent", "my-agent");
+  assertEquals(result.ok, true);
+  assertEquals(result.kind, "project-agent");
+});
+
+Deno.test("readDoc project-agent: rejects invalid agent name", async () => {
+  const result = await readDoc("/tmp", "/tmp", "project-agent", "../../../etc/passwd");
+  assertEquals(result.ok, false);
+});
+
+Deno.test("readDoc project-agent: rejects missing agent", async () => {
+  const tmp = await Deno.makeTempDir();
+  await Deno.mkdir(tmp + "/.claude/agents", { recursive: true });
+  const result = await readDoc(tmp, tmp, "project-agent", "nonexistent-agent");
+  assertEquals(result.ok, false);
+});
+
+// CCS-034C: CONTEXT_CSS enthält .ctx-grp für Gruppen-Header
+Deno.test("renderPage CONTEXT_CSS includes .ctx-grp group header class (CCS-034C)", async () => {
+  const { assertStringIncludes } = await import("@std/assert");
+  const html = await renderPage({ cwd: "/tmp", view: "project", active: "proj-a",
+    sidebar: [{ name: "proj-a", path: "/proj-a", open_tasks: 0, cost_7d: 0, tn: 0 }] });
+  assertStringIncludes(html, "ctx-grp");
 });
 
 // MAJOR-1: backlog_open=0 (all done) must show 0, not fall back to stale cache value
