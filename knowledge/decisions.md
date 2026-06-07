@@ -2,6 +2,25 @@
 
 Append-only Entscheidungs-Log (neueste oben). Status: `proposed` · `accepted` · `superseded`.
 
+## 008 — Gate-Runner: keine konfigurierten Gates = SKIP (als PASS), nicht fail-closed
+`accepted` · 2026-06-07
+
+**Context.** Echter pio-Lauf (PIT-5, Doku-Task in pi-test): `run-gates.sh` fand keine
+Gate-Quelle (kein justfile/package.json/Cargo.toml/deno.json, keine `.pi/gates`) und gab
+fail-closed `{pass:false, failed:[no-gates-detected]}`. Folge: `mark_done` (verlangt
+`pass:true`) blockiert, Task hängt auf In Progress, das schwache gemma-Modell dreht eine
+sinnlose Builder-„Fix"-Schleife.
+
+**Decision.** 0 erkannte Gates → `{pass:true, failed:[], log:"skipped: no gates configured …"}`
+(exit 0). SKIP gilt als bestanden; der Orchestrator behandelt SKIP wie PASS (kein Retry).
+Oversight bleibt via Human-Gate₀ (Spec) + Reviewer (Step 5). Lautes Log macht transparent,
+dass NICHT automatisiert getestet wurde. Alternativen „Orchestrator-Sonderfall" (gemma zu
+fragil) und „.pi/gates pro Repo" (zu viel Handarbeit) verworfen. Siehe CCS-036.17.
+
+**Consequences.** + Doku-/Sandbox-Repos laufen durch; deterministisch, kein gemma-Sonderfall.
+− Fail-open: ein Code-Repo, das seine Gate-Config verliert, wird still durchgewinkt — mitigiert
+durch lautes Log + Gate₀ + Reviewer. Wer strikte Gates will, definiert `.pi/gates`.
+
 ## 007 — Neuer Meilenstein: Launcher-Pre-Decomposition per `milestone-planner`-Worker + Human-Gate
 `accepted` · 2026-06-07
 

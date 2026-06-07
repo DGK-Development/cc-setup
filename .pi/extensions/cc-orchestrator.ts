@@ -36,7 +36,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { classifyHumanAnswer } from "../../scripts/slack-ask.ts";
@@ -62,6 +62,60 @@ const capsState = {
   taskStartTs: 0,       // Unix-ms bei Task-Start
   overridesConsumed: 0, // Anzahl bereits konsumierter Human-Cap-Overrides (CCS-036.11)
 };
+
+// Letzter vollständiger Planner-Output (Plan + AC + Dateien + Risiken). Wird beim
+// planner-Dispatch gespeichert und bei GATE0_SPEC VOLLSTÄNDIG an den Menschen geschickt
+// (statt nur einer 2-Zeilen-Zusammenfassung) — CCS-036.13.
+let lastPlannerOutput = "";
+
+// Aktueller Task (von backlog_next gesetzt) — damit JEDE Meldung Titel+ID trägt.
+let currentTask: { id: string; title: string } = { id: "", title: "" };
+
+/** Pipeline-Schritt-Label je request_human-Phase — lesbare Meldungen statt nur "phase=GATE0_SPEC". */
+function phaseStep(phase: string): string {
+  switch (phase) {
+    case "OPEN_QUESTION":      return "STEP 2 · SPEC (offene Frage)";
+    case "GATE0_SPEC":         return "STEP 3 · GATE₀ (Spec-Freigabe)";
+    case "GATE1_RETRIES":      return "STEP 4 · GATE₁ (Retry-Override)";
+    case "REVIEW_RETRIES":     return "STEP 5 · REVIEW (Retry-Override)";
+    case "CAP_EXCEEDED":       return "Intervention (Cap)";
+    case "CAP_OVERRIDE_LIMIT": return "Intervention (Cap-Limit)";
+    default:                    return phase;
+  }
+}
+
+/** Kurzer Task-Tag mit Titel: `PIT-6 „Titel…"`. Titel aus currentTask, wenn die ID passt. */
+function taskTag(id?: string): string {
+  const tid = id || currentTask.id || "?";
+  const title = (!id || id === currentTask.id) ? currentTask.title : "";
+  if (!title) return tid;
+  const short = title.length > 60 ? title.slice(0, 57) + "…" : title;
+  return `${tid} „${short}"`;
+}
+
+/**
+ * Kurze Änderungs-/Diff-Übersicht für den Builder ("bei Bearbeiter Diff zeigen"):
+ * bevorzugt uncommittete Änderungen vs HEAD, sonst den letzten Commit. Truncated.
+ */
+function builderChangeSummary(repoRoot: string): string {
+  const git = (args: string[]): string => {
+    try {
+      const r = spawnSync("git", ["-C", repoRoot, ...args], { encoding: "utf-8", timeout: 10000 });
+      return (r.stdout || "").trim();
+    } catch { return ""; }
+  };
+  const trunc = (s: string) => (s.length > 1500 ? s.slice(0, 1500) + "\n… [Diff gekürzt]" : s);
+
+  const workStat = git(["diff", "HEAD", "--stat"]);
+  if (workStat) {
+    return trunc(`uncommittete Änderungen vs HEAD:\n${workStat}\n\n${git(["diff", "HEAD"])}`);
+  }
+  const commitStat = git(["show", "HEAD", "--stat", "--format=%h %s"]);
+  if (commitStat) {
+    return trunc(`letzter Commit:\n${commitStat}\n\n${git(["show", "HEAD", "--format="])}`);
+  }
+  return "";
+}
 
 /**
  * Einmaliger consume-on-use Cap-Override.
@@ -688,7 +742,7 @@ async function pausePipeline(repoRoot: string, taskId: string | null, phase: str
 
   await sendNtfy(ntfyTitle, ntfyMessage, "high", "pause_button,robot");
 
-  return `HUMAN_REQUIRED/PAUSED: ${reason} | task=${taskId ?? "unknown"} phase=${phase} | detail=${detail} | state=${stateWritten ? "written" : "ERROR"} | resume: touch .pi/orchestrator-resume`;
+  return `HUMAN_REQUIRED/PAUSED: [${phaseStep(phase)}] task=${taskTag(taskId ?? undefined)} phase=${phase} | ${reason} | detail=${detail} | state=${stateWritten ? "written" : "ERROR"} | resume: touch .pi/orchestrator-resume`;
 }
 
 /**
@@ -700,9 +754,15 @@ async function pausePipeline(repoRoot: string, taskId: string | null, phase: str
  */
 async function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string): Promise<string> {
   // ── Slack-Frage formulieren ────────────────────────────────────────────────
+  // Bei GATE0_SPEC den VOLLSTÄNDIGEN Planner-Plan mitschicken (CCS-036.13), damit
+  // der Mensch die echte Spec sieht statt einer 2-Zeilen-Zusammenfassung.
+  const specBlock = phase === "GATE0_SPEC" && lastPlannerOutput.trim()
+    ? ["", "──────── Vollständiger Plan (Spec) ────────", lastPlannerOutput.trim(), "───────────────────────────────────────────"]
+    : [];
   const question = [
-    `[${phase}] Task: ${taskId ?? "unknown"}`,
+    `[${phaseStep(phase)}] Task: ${taskTag(taskId ?? undefined)}`,
     `Reason: ${reason}`,
+    ...specBlock,
     "",
     phase === "GATE0_SPEC" || phase === "OPEN_QUESTION"
       ? "Reply with your answer or 'ja'/'ok'/'approved' to proceed, 'nein'/'cancel'/'abort' to stop."
@@ -710,6 +770,10 @@ async function requestHuman(repoRoot: string, taskId: string | null, phase: stri
   ].join("\n");
 
   console.error(`[cc-orchestrator] requestHuman: sending Slack question for ${phase}...`);
+
+  // Tag mit echtem Pipeline-Schritt + Task-Titel. Steht NACH dem Prefix, damit das
+  // Modell weiterhin auf "HUMAN_APPROVED:"/"HUMAN_ANSWERED:"/… (startsWith) prüfen kann.
+  const tag = `[${phaseStep(phase)}] task=${taskTag(taskId ?? undefined)} phase=${phase}`;
 
   const slackResult = await spawnSlackAsk(repoRoot, question);
 
@@ -721,22 +785,22 @@ async function requestHuman(repoRoot: string, taskId: string | null, phase: stri
     const isCapPhase = phase === "CAP_EXCEEDED" || phase === "GATE1_RETRIES" || phase === "REVIEW_RETRIES";
 
     if (decision === "abort") {
-      return `CANCELLED_BY_HUMAN: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase}`;
+      return `CANCELLED_BY_HUMAN: ${tag} | ${slackResult.answer}`;
     }
 
     if (isCapPhase) {
       // Cap-Phasen: approve ODER answer (alles außer abort) → einmaliger Override
       capsOverridePending = true;
       console.error(`[cc-orchestrator] CAP OVERRIDE pending — next step will bypass cap check.`);
-      return `HUMAN_APPROVED_OVERRIDE: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase} | cap-override=pending`;
+      return `HUMAN_APPROVED_OVERRIDE: ${tag} | cap-override=pending | ${slackResult.answer}`;
     }
 
     // GATE0_SPEC / OPEN_QUESTION: approve → HUMAN_APPROVED:, Freitext → HUMAN_ANSWERED:
     if (decision === "approve") {
-      return `HUMAN_APPROVED: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase}`;
+      return `HUMAN_APPROVED: ${tag} | ${slackResult.answer}`;
     }
     // answer (Freitext): in Plan/Spec einarbeiten; bei GATE0_SPEC erneut GATE0 durchlaufen
-    return `HUMAN_ANSWERED: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase}`;
+    return `HUMAN_ANSWERED: ${tag} | ${slackResult.answer}`;
   }
 
   // ── Kein Slack-Antwort (Timeout oder Fehler) → FALLBACK ───────────────────
@@ -784,9 +848,10 @@ export default function (pi: ExtensionAPI) {
       const title = parts.slice(1).join("\t").trim();
 
       const task: BacklogNextResult = { id, title };
+      currentTask = { id, title }; // für Titel in allen folgenden Meldungen
 
       return {
-        content: [{ type: "text", text: `Next task: ${id} — ${title}` }],
+        content: [{ type: "text", text: `STEP 1 · PICK — ${id} „${title}"` }],
         details: task,
       };
     },
@@ -816,7 +881,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       return {
-        content: [{ type: "text", text: `Task ${id} status set to: ${status}` }],
+        content: [{ type: "text", text: `STEP 1 · PICK — ${taskTag(id)} → ${status}` }],
         details: { id, status, exitCode: 0 },
       };
     },
@@ -948,17 +1013,36 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
+      // Vollständigen Planner-Output für GATE0 (Voll-Spec an den Menschen) merken.
+      if (role === "planner" && !result.is_error && result.result) {
+        lastPlannerOutput = result.result;
+      }
+
+      const STEP_BY_ROLE: Record<string, string> = {
+        planner: "STEP 2 · SPEC",
+        builder: "STEP 4 · DEV",
+        reviewer: "STEP 5 · REVIEW",
+      };
+      const stepLabel = STEP_BY_ROLE[role] ?? `· ${role}`;
+      const icon = result.is_error ? "❌" : "✅";
       const status = result.is_error ? "error" : "done";
       const cost = result.total_cost_usd.toFixed(4);
       const accumulated = capsState.totalCostUsd.toFixed(4);
 
-      const summary = `[${role}] ${status} | turns=${result.num_turns} cost=$${cost} (total=$${accumulated})`;
+      const summary = `${stepLabel} (${role}) — ${taskTag()}\n${icon} ${status} · turns=${result.num_turns} · cost=$${cost} (Σ $${accumulated})`;
       const truncated = result.result.length > 6000
         ? result.result.slice(0, 6000) + "\n\n... [truncated]"
         : result.result;
 
+      // "bei Bearbeiter Diff zeigen": nach dem Builder die geänderten Dateien anhängen.
+      let diffBlock = "";
+      if (role === "builder") {
+        const diff = builderChangeSummary(repoRoot);
+        if (diff) diffBlock = `\n\n── Δ geänderte Dateien ──\n${diff}`;
+      }
+
       return {
-        content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
+        content: [{ type: "text", text: `${summary}\n\n${truncated}${diffBlock}` }],
         details: { role, ...result, caps: { ...capsState } },
       };
     },
@@ -991,10 +1075,19 @@ export default function (pi: ExtensionAPI) {
       }
 
       const result = await runGatesScript(repoRoot);
-      const statusText = result.pass ? "PASS" : `FAIL (${result.failed.join(", ")})`;
+      // SKIP = pass:true, keine failed-Gates, Log beginnt mit "skipped:" (keine Gates konfiguriert).
+      const isSkip = result.pass && (result.failed?.length ?? 0) === 0 && /^skipped:/i.test(result.log || "");
+      let statusText: string;
+      if (isSkip) {
+        statusText = "⏭️  SKIP — keine Gates in diesem Repo konfiguriert (nichts zu prüfen → gilt als bestanden)";
+      } else if (result.pass) {
+        statusText = "✅ PASS";
+      } else {
+        statusText = `❌ FAIL (${result.failed.join(", ")})`;
+      }
 
       return {
-        content: [{ type: "text", text: `Gates: ${statusText}\nLog: ${result.log}` }],
+        content: [{ type: "text", text: `STEP 4 · GATE₁ (run_gates) — ${taskTag()}\n${statusText}\nLog: ${result.log || "(leer)"}` }],
         details: result,
       };
     },
@@ -1127,7 +1220,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       return {
-        content: [{ type: "text", text: `Task ${id} marked as Done. No git push performed (human merge required).` }],
+        content: [{ type: "text", text: `STEP 6 · DONE — ${taskTag(id)} ✅ Done (kein git push — Human-Merge nötig).` }],
         details: { id, ac_indices, has_summary: Boolean(final_summary), done_set: true, exitCode: 0 },
       };
     },
@@ -1170,7 +1263,8 @@ STEP 2 — SPEC
 
 STEP 3 — GATE₀ (Spec Gate — Human Approval MANDATORY)
   This step is NON-OPTIONAL. ALWAYS call request_human here, even if the plan looks good.
-  Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Spec ready for human approval. Plan summary: <first 2 lines of planner output>")
+  Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Spec ready for human approval.")
+  NOTE: The COMPLETE planner spec (plan + AC + files + risks) is attached to the human message AUTOMATICALLY. Do NOT summarize it into the reason — keep the reason to one short line.
   Read the return value:
     - Starts with "HUMAN_APPROVED:" → human approved; proceed to STEP 4 (DEV).
     - Starts with "HUMAN_ANSWERED:" → human gave a free-text comment; incorporate into plan; call request_human AGAIN for GATE0_SPEC (do NOT proceed to DEV yet).
@@ -1181,6 +1275,8 @@ STEP 3 — GATE₀ (Spec Gate — Human Approval MANDATORY)
 STEP 4 — DEV (repeat up to MAX_DEV_RETRIES times if gates fail)
   Call: dispatch_worker(role="builder", prompt="<approved-plan>. Implement exactly this plan. Task: <id>.")
   Then: run_gates
+  run_gates returns one of: PASS, SKIP (no gates configured in the repo), or FAIL.
+  Treat SKIP exactly like PASS (nothing to verify automatically) → proceed to STEP 5. Do NOT retry the builder on SKIP.
   If gates FAIL:
     dev_retries += 1
     If dev_retries > MAX_DEV_RETRIES:
@@ -1195,6 +1291,8 @@ STEP 4 — DEV (repeat up to MAX_DEV_RETRIES times if gates fail)
 
 STEP 5 — REVIEW
   Call: dispatch_worker(role="reviewer", prompt="Review the current diff. Task: <id>. AC: <ac-list>.")
+  If reviewer verdict is APPROVE (no BLOCKER / no "REJECT"):
+    → Do NOT stop. Do NOT just say "proceed to STEP 6". IMMEDIATELY go to STEP 6 and CALL the mark_done tool in your VERY NEXT action.
   If REJECT in reviewer output:
     review_retries += 1
     If review_retries > MAX_REVIEW_RETRIES:
@@ -1208,8 +1306,9 @@ STEP 5 — REVIEW
       Go back to run_gates, then re-dispatch reviewer.
 
 STEP 6 — DONE
+  You MUST emit the mark_done TOOL CALL now. Announcing "I proceed to STEP 6" in text is NOT enough and is a failure — the task stays unfinished until mark_done actually runs.
   Call: mark_done(id=<id>, ac_indices=[1,2,...], final_summary="<reviewer summary>")
-  Report: "Task <id> complete. Awaiting human push/merge to main."
+  Only AFTER the mark_done tool returns, report: "Task <id> complete. Awaiting human push/merge to main."
 
 RESUME PROTOCOL:
   When you see ".pi/orchestrator-resume exists" in your prompt or context:

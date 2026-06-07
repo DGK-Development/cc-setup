@@ -134,10 +134,17 @@ if [[ "$DRY_RUN" == "false" ]]; then
     echo ""
 fi
 
+# DIRECT_LABEL: Menue-Option "Tasks direkt abarbeiten" — nur wenn KEINE offenen
+# Meilensteine gefunden wurden (bzw. sprint_bridge nichts lieferte). Dann globaler
+# PICK ohne Milestone-Scope, statt den User in "Neuer Meilenstein" zu zwingen.
+DIRECT_LABEL=0
 if [[ $NUM_MILESTONES -eq 0 ]]; then
+    DIRECT_LABEL=1
+    NEW_LABEL=2
     if [[ "$DRY_RUN" == "false" ]]; then
         echo "  (Keine offenen Meilensteine gefunden)"
         echo ""
+        printf "  %d) Tasks direkt abarbeiten (ohne Meilenstein)\n" "$DIRECT_LABEL"
     fi
 else
     for i in "${!MS_NAMES[@]}"; do
@@ -146,9 +153,9 @@ else
             printf "  %d) %s  (%d/%d done)\n" "$label" "${MS_NAMES[$i]}" "${MS_DONE[$i]}" "${MS_TOTAL[$i]}"
         fi
     done
+    NEW_LABEL=$((NUM_MILESTONES + 1))
 fi
 
-NEW_LABEL=$((NUM_MILESTONES + 1))
 if [[ "$DRY_RUN" == "false" ]]; then
     printf "  %d) Neuer Meilenstein\n" "$NEW_LABEL"
     echo ""
@@ -173,7 +180,12 @@ fi
 
 PROMPT=""
 
-if [[ "$SELECTION" -eq "$NEW_LABEL" ]]; then
+if [[ "$DIRECT_LABEL" -ne 0 && "$SELECTION" -eq "$DIRECT_LABEL" ]]; then
+    # Tasks direkt abarbeiten: KEIN Milestone-Scope (CC_ORCH_MILESTONE bleibt unset)
+    # -> Orchestrator pickt global den naechsten To-Do (backlog_next). Kein fixer Task
+    # im Prompt (Sequencer-Widerspruch vermeiden, vgl. CCS-036.07).
+    PROMPT="Start orchestrator pipeline. Pick the next open task and run the full pipeline."
+elif [[ "$SELECTION" -eq "$NEW_LABEL" ]]; then
     # New milestone: ask for name
     if [[ "$DRY_RUN" == "false" ]]; then
         printf "Name des neuen Meilensteins: "

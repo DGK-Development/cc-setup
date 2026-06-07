@@ -1,44 +1,115 @@
 #!/usr/bin/env bash
-# run-gates.sh — deterministischer Gate-Runner fuer cc-setup
+# run-gates.sh — deterministischer Gate-Runner (portabel, Auto-Detect)
 # Fuehrt die konfigurierten Gates der Reihe nach aus und gibt ein valides
 # JSON-Objekt auf stdout aus:
 #   {"pass": <bool>, "failed": ["<gate-name>", ...], "log": "<pfad>"}
 #
 # Aufruf: redactor wrap -- bash scripts/run-gates.sh
-# Alle Sub-Commands laufen via redactor wrap -- (Org-Compliance).
-# Fortschritts-Ausgabe geht auf stderr + Logdatei; stdout ist reines JSON.
+#   oder:  bash /path/to/cc-setup/scripts/run-gates.sh   (aus beliebigem Repo, cwd=Ziel-Repo)
 #
-# Gates:
-#   test      -> just test  (Python pytest + Deno-Tests)
-#   go-build  -> just go-build  (Go build + vet + gofmt)
+# Optionen:
+#   --print-gates   Dry-Run: gibt erkannte Gates als "name:command" aus (eine pro Zeile)
+#                   und beendet sich ohne die Gates auszufuehren (exit 0).
+#
+# Gate-Konfiguration (in Reihenfolge):
+#   1. ${REPO_ROOT}/.pi/gates   — Zeilen "name:command" (ueberschreibt Auto-Detect komplett)
+#   2. Auto-Detect (mehrere moeglich, in dieser Prio):
+#        justfile / Justfile   -> test:just test
+#        package.json          -> test:npm test
+#        Cargo.toml            -> test:cargo test
+#        deno.json / deno.jsonc -> test:deno task test
+#   3. Nichts erkannt und keine .pi/gates -> Fehler-JSON {pass:false, failed:[no-gates-detected]}
+#
+# REPO_ROOT = PWD (cwd = Ziel-Repo); Skript-Ort ist irrelevant.
+# Alle Sub-Commands laufen via redactor wrap -- (Org-Compliance).
 
 set -euo pipefail
 
 # PATH-Erweiterung: In non-login Subshells (pi-Orchestrator, CI) fehlen oft die
 # Homebrew- und User-Bins. Wir fuegen die ueblichen Pfade vorne ein, damit
 # just/deno/jq/redactor gefunden werden, ohne den System-PATH zu ueberschreiben.
-# Bereits enthaltene Pfade werden von der Shell automatisch dedupliziert (PATH-Semantik:
-# erster Treffer gewinnt, Duplikate schaden nicht).
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.cargo/bin:${HOME}/.local/bin:${HOME}/.bun/bin:${HOME}/.deno/bin:${PATH:-}"
 
-# F5: Dependency-Guard — fehlt eine Pflicht-Binary, sofort mit Fehler-JSON abbrechen.
-for _dep in jq redactor just; do
+# ── Optionen parsen ───────────────────────────────────────────────────────────
+PRINT_GATES=false
+for _arg in "$@"; do
+    if [[ "${_arg}" == "--print-gates" ]]; then
+        PRINT_GATES=true
+    fi
+done
+
+# ── REPO_ROOT aus cwd ─────────────────────────────────────────────────────────
+# cwd = Ziel-Repo (gesetzt vom Aufrufer / pi-Launcher). Skript-Ort ist irrelevant.
+REPO_ROOT="${PWD}"
+LOG_DIR="${REPO_ROOT}/logs"
+
+# ── Gate-Auto-Detect / .pi/gates Override ────────────────────────────────────
+# Ergebnis: GATES-Array mit "name:command"-Strings.
+declare -a GATES=()
+
+_gates_file="${REPO_ROOT}/.pi/gates"
+if [[ -f "${_gates_file}" ]]; then
+    # .pi/gates existiert: Zeilen laden (leere Zeilen und #-Kommentare ignorieren)
+    while IFS= read -r _line; do
+        [[ -z "${_line}" || "${_line}" =~ ^# ]] && continue
+        GATES+=("${_line}")
+    done < "${_gates_file}"
+else
+    # Auto-Detect: mehrere Marker koennen parallel vorhanden sein
+    [[ -f "${REPO_ROOT}/justfile" || -f "${REPO_ROOT}/Justfile" ]] && GATES+=("test:just test")
+    [[ -f "${REPO_ROOT}/package.json" ]] && GATES+=("test:npm test")
+    [[ -f "${REPO_ROOT}/Cargo.toml" ]] && GATES+=("test:cargo test")
+    [[ -f "${REPO_ROOT}/deno.json" || -f "${REPO_ROOT}/deno.jsonc" ]] && GATES+=("test:deno task test")
+fi
+
+# ── Dry-Run: Gates ausgeben ohne auszufuehren ─────────────────────────────────
+if [[ "${PRINT_GATES}" == "true" ]]; then
+    if [[ ${#GATES[@]} -eq 0 ]]; then
+        echo "no-gates-detected"
+    else
+        for _g in "${GATES[@]}"; do
+            echo "${_g}"
+        done
+    fi
+    exit 0
+fi
+
+# ── Kein Gate erkannt → SKIP (als PASS gewertet) ─────────────────────────────
+# Keine Gate-Quelle (kein justfile/package.json/Cargo.toml/deno.json und keine
+# .pi/gates) = nichts zu pruefen. Bewusst als PASS/SKIP gewertet (User-Entscheid),
+# damit die Pipeline in Doku-/Sandbox-Repos nicht fail-closed haengt. Oversight
+# bleibt via Human-Gate0 (Spec) + Reviewer. Das laute Log macht transparent, dass
+# NICHT automatisiert getestet wurde — kein stiller gruener Lauf.
+if [[ ${#GATES[@]} -eq 0 ]]; then
+    printf '{"pass":true,"failed":[],"log":"skipped: no gates configured (no justfile/package.json/Cargo.toml/deno.json and no .pi/gates)"}\n'
+    exit 0
+fi
+
+# ── Dependency-Guard ──────────────────────────────────────────────────────────
+# jq und redactor sind immer noetig; just nur pruefen wenn ein just-Gate aktiv ist.
+for _dep in jq redactor; do
     if ! command -v "${_dep}" >/dev/null 2>&1; then
         printf '{"pass":false,"failed":["dependency-missing-%s"],"log":""}\n' "${_dep}"
         exit 2
     fi
 done
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="${REPO_ROOT}/logs"
+# just nur pruefen wenn mindestens ein just-Gate vorhanden
+_need_just=false
+for _g in "${GATES[@]}"; do
+    _cmd="${_g#*:}"
+    if [[ "${_cmd}" == just* ]]; then
+        _need_just=true
+        break
+    fi
+done
+if [[ "${_need_just}" == "true" ]] && ! command -v just >/dev/null 2>&1; then
+    printf '{"pass":false,"failed":["dependency-missing-just"],"log":""}\n'
+    exit 2
+fi
+
 LOG_FILE="${LOG_DIR}/run-gates-$(date +%Y%m%d-%H%M%S).log"
 mkdir -p "${LOG_DIR}"
-
-# Gate-Definitionen: "name:command"
-declare -a GATES=(
-    "test:just test"
-    "go-build:just go-build"
-)
 
 declare -a FAILED_GATES=()
 
@@ -89,7 +160,7 @@ for gate_entry in "${GATES[@]}"; do
     # Statische, kontrollierte Gate-Strings aus dem GATES-Array — kein nutzer-supplied Input.
     _safe_root="$(printf '%q' "${REPO_ROOT}")"
     # gate_cmd in Positionsparameter aufsplitten (IFS-Split auf Leerzeichen — ausreichend
-    # fuer die statischen "just <subcmd>"-Strings; kein Glob/Quoting-Problem moeglich).
+    # fuer die statischen Gate-Strings; kein Glob/Quoting-Problem moeglich).
     # shellcheck disable=SC2086
     read -r -a _gate_args <<< "${gate_cmd}"
 
