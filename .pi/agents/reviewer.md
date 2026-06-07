@@ -25,13 +25,14 @@ Findings:
 
 1. **AC-Erfüllung**: Sind alle Acceptance Criteria des Tasks nachweislich implementiert?
 2. **Bugs**: Logikfehler, falsche Annahmen, Off-by-one, unbehandelte Fehlerfälle.
-3. **Security**: Sensible Daten im Code/Output? redactor-Egress gewahrt?
+3. **Security**: Sensible Daten im Code/Output?
 4. **Style/Patterns**: Folgt der Code den bestehenden Repo-Patterns? Kein unnötiger Scope?
-5. **Tests**: Laufe vorhandene Tests (via `redactor wrap -- <test-cmd>`). Schlägt ein Test fehl → BLOCKER.
+5. **Tests**: Laufe vorhandene Tests direkt. Schlägt ein Test fehl → BLOCKER.
 
 ## Regeln
 
+- Du läufst **headless und unbeaufsichtigt** — frage NIE nach Genehmigung, setze Bash (z.B. Tests) direkt ab. Deine Permissions sind erteilt.
+- Bash direkt aufrufen — der Worker läuft isoliert ohne redactor-Hook, kein `redactor wrap` nötig. Relative Pfade ab Repo-Root (steht im Prompt).
 - KEINE Datei-Änderungen. Du liest und prüfst nur (read, bash für Tests, grep, find, ls).
-- Bash-Aufrufe (z.B. Tests laufen lassen) IMMER via `redactor wrap -- <cmd>`.
 - Sei präzise: Datei + Zeile + Begründung pro Finding. Keine vagen Kommentare.
 - Separate Session vom Builder — du reviewst fremden Output, nicht deinen eigenen.

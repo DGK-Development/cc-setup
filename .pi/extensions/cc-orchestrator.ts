@@ -39,6 +39,7 @@ import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
+import { classifyHumanAnswer } from "../../scripts/slack-ask.ts";
 
 // ── Caps-Konstanten ────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ const CAPS = {
   MAX_REVIEW_RETRIES: 1,        // Maximale Builder-Retries bei Reviewer-REJECT
   MAX_COST_USD_PER_TASK: 5.0,   // Kostenlimit pro Task in USD
   MAX_WALL_CLOCK_PER_TASK: 900, // Wanduhrlimit in Sekunden pro Task
+  MAX_CAP_OVERRIDES: 2,         // Max. Human-Cap-Overrides pro Task (CCS-036.11):
+                                // danach harter Pause statt endloser Override-Anfragen.
 };
 
 // ── Caps-Enforcement-State (pro Task-Lauf) ────────────────────────────────────
@@ -56,8 +59,17 @@ const capsState = {
   devRetries: 0,
   reviewRetries: 0,
   totalCostUsd: 0,
-  taskStartTs: 0, // Unix-ms bei Task-Start
+  taskStartTs: 0,       // Unix-ms bei Task-Start
+  overridesConsumed: 0, // Anzahl bereits konsumierter Human-Cap-Overrides (CCS-036.11)
 };
+
+/**
+ * Einmaliger consume-on-use Cap-Override.
+ * Wird von requestHuman() gesetzt wenn der Mensch bei CAP_EXCEEDED/GATE1_RETRIES/REVIEW_RETRIES
+ * mit "approve"/"continue" antwortet. precheck()/checkCaps() läst genau den nächsten Schritt
+ * durch und setzt das Flag dann zurück (consumed).
+ */
+let capsOverridePending = false;
 
 /**
  * Setzt den Caps-State zurueck. Wird am Anfang von backlog_next.execute() aufgerufen
@@ -70,13 +82,39 @@ function resetCapsState(): void {
   capsState.reviewRetries = 0;
   capsState.totalCostUsd = 0;
   capsState.taskStartTs = Date.now();
+  capsState.overridesConsumed = 0;
+  capsOverridePending = false;
 }
 
 /**
  * Prueft ob ein Cap ueberschritten ist.
  * Gibt null zurueck wenn alles ok, sonst eine Fehlermeldung.
+ *
+ * Wenn capsOverridePending gesetzt ist (Mensch hat bei cap-Überschreitung "approve" geantwortet),
+ * wird der Override für GENAU diesen einen Aufruf konsumiert: Zaehler werden auf Cap-Niveau
+ * zurückgesetzt, Flag wird gecleart, Funktion gibt null zurück.
+ * Der Override gilt nur einmal — nächster Aufruf prüft normal.
  */
 function checkCaps(): string | null {
+  if (capsOverridePending) {
+    // CCS-036.11: Override-Schleife begrenzen. Ein Override resettet devRetries UND
+    // die Wall-Clock — ohne Obergrenze loopt das endlos (jeder Retry tript den Cap
+    // erneut, Human approved, reset, …). Ab MAX_CAP_OVERRIDES wird der Override NICHT
+    // mehr konsumiert: terminaler Fehler → Caller pausiert hart, statt neu zu fragen.
+    if (capsState.overridesConsumed >= CAPS.MAX_CAP_OVERRIDES) {
+      capsOverridePending = false; // Flag clearen, aber NICHT konsumieren/resetten
+      console.error(`[cc-orchestrator] CAP_OVERRIDE_LIMIT reached (${capsState.overridesConsumed}/${CAPS.MAX_CAP_OVERRIDES}) — refusing further auto-override.`);
+      return `CAP_OVERRIDE_LIMIT: max cap overrides (${CAPS.MAX_CAP_OVERRIDES}) reached — pipeline must pause (no further auto-overrides)`;
+    }
+    // Consume-on-use: Zaehler auf gerade-noch-erlaubt zurücksetzen
+    capsState.devRetries = Math.min(capsState.devRetries, CAPS.MAX_DEV_RETRIES);
+    capsState.reviewRetries = Math.min(capsState.reviewRetries, CAPS.MAX_REVIEW_RETRIES);
+    capsState.taskStartTs = Date.now(); // Wall-clock-Reset
+    capsState.overridesConsumed += 1;
+    capsOverridePending = false;
+    console.error(`[cc-orchestrator] CAP OVERRIDE consumed (${capsState.overridesConsumed}/${CAPS.MAX_CAP_OVERRIDES}) — caps reset for this step only.`);
+    return null;
+  }
   const elapsedSecs = (Date.now() - capsState.taskStartTs) / 1000;
   if (capsState.devRetries > CAPS.MAX_DEV_RETRIES) {
     return `MAX_DEV_RETRIES (${CAPS.MAX_DEV_RETRIES}) exceeded (current: ${capsState.devRetries})`;
@@ -134,11 +172,19 @@ interface WorkerResult {
   error?: string;
 }
 
+// ── CC_SETUP_DIR Aufloesung ────────────────────────────────────────────────────
+// Zentrales cc-setup-Verzeichnis: CC_SETUP_DIR env (fuer pio in fremden Repos)
+// oder repoRoot (Fallback = bisheriges cc-setup-Verhalten, Backward-Compat).
+// HINWEIS: ccSetupDir wird einmalig in session_start gesetzt (nach repoRoot).
+// Lock/Kill/State verbleiben immer in repoRoot/.pi/ (gehoeren ins Ziel-Repo).
+
+let ccSetupDir = ""; // wird in session_start gesetzt
+
 // ── cc-backlog.sh Wrapper ────────────────────────────────────────────────────
 
 function runBacklogScript(repoRoot: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const scriptPath = join(repoRoot, "scripts", "cc-backlog.sh");
+    const scriptPath = join(ccSetupDir || repoRoot, "scripts", "cc-backlog.sh");
 
     const proc = spawn("bash", [scriptPath, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -169,7 +215,7 @@ function runBacklogScript(repoRoot: string, args: string[]): Promise<{ stdout: s
 
 function runGatesScript(repoRoot: string): Promise<GateResult> {
   return new Promise((resolve) => {
-    const scriptPath = join(repoRoot, "scripts", "run-gates.sh");
+    const scriptPath = join(ccSetupDir || repoRoot, "scripts", "run-gates.sh");
 
     const proc = spawn("bash", [scriptPath], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -224,7 +270,7 @@ function spawnDispatchWorker(
   onChunk?: (line: string) => void,
 ): Promise<WorkerResult> {
   return new Promise((resolve) => {
-    const scriptPath = join(repoRoot, "scripts", "cc-dispatch.ts");
+    const scriptPath = join(ccSetupDir || repoRoot, "scripts", "cc-dispatch.ts");
     // Übergib Rolle als --role Flag damit cc-dispatch.ts den permissionMode korrekt setzt
     const args = [scriptPath, role, prompt, "--role", role];
     if (model) { args.push("--model", model); }
@@ -304,6 +350,75 @@ function spawnDispatchWorker(
         exitCode: 1,
         stderr: err.message,
         error: `spawn error: ${err.message}`,
+      });
+    });
+  });
+}
+
+// ── slack-ask CLI Spawn ────────────────────────────────────────────────────────
+
+interface SlackAskSpawnResult {
+  answered: boolean;
+  answer: string | null;
+  timed_out: boolean;
+  ts: string;
+  error?: string;
+}
+
+/**
+ * Spawnt `bun scripts/slack-ask.ts "<question>"` und parst das stdout-JSON.
+ * Gleicher Spawn-Stil wie spawnDispatchWorker (async, stdout sammeln, JSON parsen).
+ * Timeout: DEFAULT_TIMEOUT_SECS (900s) + 30s Buffer = 930s spawnSync-Äquivalent,
+ * aber da wir async spawn nutzen, übergeben wir den Wert nur an das CLI (kein eigener Timer).
+ */
+function spawnSlackAsk(repoRoot: string, question: string): Promise<SlackAskSpawnResult> {
+  return new Promise((resolve) => {
+    const scriptPath = join(ccSetupDir || repoRoot, "scripts", "slack-ask.ts");
+    const proc = spawn("bun", [scriptPath, question], {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: repoRoot,
+      env: { ...process.env },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout!.setEncoding("utf-8");
+    proc.stdout!.on("data", (chunk: string) => { stdout += chunk; });
+
+    proc.stderr!.setEncoding("utf-8");
+    proc.stderr!.on("data", (chunk: string) => { stderr += chunk; });
+
+    proc.on("close", (_code: number | null) => {
+      const raw = stdout.trim();
+      let parsed: SlackAskSpawnResult = {
+        answered: false,
+        answer: null,
+        timed_out: false,
+        ts: "",
+        error: "JSON parse error",
+      };
+      try {
+        parsed = JSON.parse(raw) as SlackAskSpawnResult;
+      } catch {
+        parsed = {
+          answered: false,
+          answer: null,
+          timed_out: false,
+          ts: "",
+          error: `slack-ask spawn/parse error: ${stderr.slice(0, 300) || raw.slice(0, 300) || "no output"}`,
+        };
+      }
+      resolve(parsed);
+    });
+
+    proc.on("error", (err: Error) => {
+      resolve({
+        answered: false,
+        answer: null,
+        timed_out: false,
+        ts: "",
+        error: `slack-ask spawn failed: ${err.message}`,
       });
     });
   });
@@ -507,25 +622,27 @@ function checkResumeState(repoRoot: string): "approved" | "cancelled" | "waiting
   return "waiting";
 }
 
-// ── requestHuman — Task .09: Pause/Resume/ntfy ──────────────────────────────
+// ── requestHuman — blockierendes Slack-Warten (CCS-036.02) ──────────────────
+//
+// Ablauf:
+//   1. Frage über Slack senden + blockierend auf Antwort warten (spawnSlackAsk).
+//   2. Bei Antwort: klassifizieren (approve/abort/answer) → strukturiertes Ergebnis zurück.
+//      - GATE0_SPEC / OPEN_QUESTION: answered → Antworttext zurückgeben, Pipeline läuft weiter.
+//        abort → STOP.
+//      - CAP_EXCEEDED / GATE1_RETRIES / REVIEW_RETRIES: approve → capsOverridePending=true
+//        (einmaliger Override für nächsten Schritt). abort → STOP.
+//   3. Bei Timeout/Slack-Fehler (answered:false): FALLBACK — orchestrator-state.json + ntfy +
+//      File-Flag-Resume (unveränderter bisheriger Pfad). Rückgabe "PAUSED…".
 
 /**
- * Pausiert die Pipeline, persistiert den Zustand in .pi/orchestrator-state.json,
- * und sendet eine ntfy-Benachrichtigung (best-effort).
+ * Pausiert die Pipeline hart: schreibt .pi/orchestrator-state.json (file-flag-resumebar),
+ * sendet ntfy und gibt den "HUMAN_REQUIRED/PAUSED…"-String zurück.
  *
- * Rückgabe: "HUMAN_REQUIRED/PAUSED: <reason>" — der Dispatcher DARF danach
- * KEINE weiteren Pipeline-Schritte ausführen (builder-Dispatch, mark_done, etc.).
- *
- * Resume-Mechanik:
- *   touch .pi/orchestrator-resume         → nächster pi-Start fährt fort
- *   touch .pi/orchestrator-resume-cancel  → nächster pi-Start bricht ab
- *
- * @param repoRoot   Repo-Wurzel (aus ctx.cwd)
- * @param taskId     Aktuelle Task-ID oder null
- * @param phase      Pipeline-Phase (z.B. "GATE0_SPEC", "GATE1_RETRIES", "CAP_EXCEEDED")
- * @param reason     Menschenlesbarer Grund
+ * Genutzt von (a) requestHuman als Slack-Timeout/Fehler-Fallback und
+ * (b) dem CAP_OVERRIDE_LIMIT-Pfad (CCS-036.11), wo NICHT erneut um einen Override
+ * gefragt werden darf. detail = Kontext (Slack-Fallback-Grund bzw. Policy-Hinweis).
  */
-async function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string): Promise<string> {
+async function pausePipeline(repoRoot: string, taskId: string | null, phase: string, reason: string, detail: string): Promise<string> {
   const stateFile = join(repoRoot, ".pi", "orchestrator-state.json");
   const piDir = join(repoRoot, ".pi");
   if (!existsSync(piDir)) {
@@ -538,6 +655,7 @@ async function requestHuman(repoRoot: string, taskId: string | null, phase: stri
     reason,
     ts: new Date().toISOString(),
     status: "waiting_for_human",
+    slack_fallback: detail,
     resume_instructions: [
       "To approve/continue: touch .pi/orchestrator-resume",
       "To cancel:          touch .pi/orchestrator-resume-cancel",
@@ -553,12 +671,13 @@ async function requestHuman(repoRoot: string, taskId: string | null, phase: stri
     console.error(`[cc-orchestrator] Warning: could not write state file: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // ntfy — best-effort. Titel: nur ASCII (em-dash in spawn-Args verursacht Encoding-Probleme).
+  // ntfy — best-effort. Titel: nur ASCII.
   const ntfyTitle = `Orchestrator PAUSED -- ${phase}`;
   const ntfyMessage = [
     `**Task:** ${taskId ?? "unknown"}`,
     `**Phase:** ${phase}`,
     `**Reason:** ${reason}`,
+    `**Detail:** ${detail}`,
     "",
     "**Resume:**",
     "```",
@@ -567,10 +686,67 @@ async function requestHuman(repoRoot: string, taskId: string | null, phase: stri
     `State file: ${stateWritten ? ".pi/orchestrator-state.json (written)" : "WRITE FAILED"}`,
   ].join("\n");
 
-  // Wir awaiten ntfy, aber sein Fehler stoppt nie die Pipeline
   await sendNtfy(ntfyTitle, ntfyMessage, "high", "pause_button,robot");
 
-  return `HUMAN_REQUIRED/PAUSED: ${reason} | task=${taskId ?? "unknown"} phase=${phase} | state=${stateWritten ? "written" : "ERROR"} | resume: touch .pi/orchestrator-resume`;
+  return `HUMAN_REQUIRED/PAUSED: ${reason} | task=${taskId ?? "unknown"} phase=${phase} | detail=${detail} | state=${stateWritten ? "written" : "ERROR"} | resume: touch .pi/orchestrator-resume`;
+}
+
+/**
+ * Stellt dem Menschen eine Frage via Slack und wartet blockierend auf die Antwort.
+ * Gibt einen strukturierten String zurück, der als Tool-Result an pi geht.
+ *
+ * Fallback (Timeout/Slack-Fehler): pausePipeline() — schreibt .pi/orchestrator-state.json
+ * + sendet ntfy + gibt "PAUSED…"-String zurück (identisch zum alten Verhalten).
+ */
+async function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string): Promise<string> {
+  // ── Slack-Frage formulieren ────────────────────────────────────────────────
+  const question = [
+    `[${phase}] Task: ${taskId ?? "unknown"}`,
+    `Reason: ${reason}`,
+    "",
+    phase === "GATE0_SPEC" || phase === "OPEN_QUESTION"
+      ? "Reply with your answer or 'ja'/'ok'/'approved' to proceed, 'nein'/'cancel'/'abort' to stop."
+      : "Reply 'ja'/'ok'/'approved'/'continue' to override and proceed, or 'nein'/'cancel'/'stop' to abort.",
+  ].join("\n");
+
+  console.error(`[cc-orchestrator] requestHuman: sending Slack question for ${phase}...`);
+
+  const slackResult = await spawnSlackAsk(repoRoot, question);
+
+  // ── Antwort erhalten → klassifizieren ─────────────────────────────────────
+  if (slackResult.answered && slackResult.answer) {
+    const decision = classifyHumanAnswer(slackResult.answer);
+    console.error(`[cc-orchestrator] Slack answer received: "${slackResult.answer}" → decision: ${decision}`);
+
+    const isCapPhase = phase === "CAP_EXCEEDED" || phase === "GATE1_RETRIES" || phase === "REVIEW_RETRIES";
+
+    if (decision === "abort") {
+      return `CANCELLED_BY_HUMAN: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase}`;
+    }
+
+    if (isCapPhase) {
+      // Cap-Phasen: approve ODER answer (alles außer abort) → einmaliger Override
+      capsOverridePending = true;
+      console.error(`[cc-orchestrator] CAP OVERRIDE pending — next step will bypass cap check.`);
+      return `HUMAN_APPROVED_OVERRIDE: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase} | cap-override=pending`;
+    }
+
+    // GATE0_SPEC / OPEN_QUESTION: approve → HUMAN_APPROVED:, Freitext → HUMAN_ANSWERED:
+    if (decision === "approve") {
+      return `HUMAN_APPROVED: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase}`;
+    }
+    // answer (Freitext): in Plan/Spec einarbeiten; bei GATE0_SPEC erneut GATE0 durchlaufen
+    return `HUMAN_ANSWERED: ${slackResult.answer} | task=${taskId ?? "unknown"} phase=${phase}`;
+  }
+
+  // ── Kein Slack-Antwort (Timeout oder Fehler) → FALLBACK ───────────────────
+  const fallbackReason = slackResult.timed_out
+    ? `Slack timeout after 900s (no reply received)`
+    : `Slack unavailable: ${slackResult.error ?? "unknown error"}`;
+
+  console.error(`[cc-orchestrator] requestHuman fallback: ${fallbackReason}`);
+
+  return await pausePipeline(repoRoot, taskId, phase, reason, fallbackReason);
 }
 
 // ── Extension ─────────────────────────────────────────────────────────────────
@@ -709,8 +885,24 @@ export default function (pi: ExtensionAPI) {
           }
         : undefined;
 
+      // ── Deterministischer Prompt-Header: Repo-Root + Autonomie ───────────────
+      // Modellunabhängig (egal wie der Orchestrator-LLM den Prompt baut): der Worker
+      // bekommt IMMER seinen echten Repo-Root und — bei ausführenden Rollen — die
+      // klare Headless-Autonomie-Ansage. Das verhindert (a) erfundene Absolut-Pfade
+      // wie /home/user/… und (b) den "Ich warte auf Genehmigung"-Loop.
+      const execRole = role === "builder" || role === "reviewer";
+      const header = [
+        `Repo root (your working directory / CWD): ${repoRoot}`,
+        `Use paths RELATIVE to this directory. Never invent absolute paths like /home/... or /.`,
+        execRole
+          ? `You run HEADLESS and autonomous — no human approves tool calls. NEVER ask for permission or confirmation; execute the required tools directly.`
+          : ``,
+        ``,
+        prompt,
+      ].filter((l) => l !== "").join("\n");
+
       // Leite CAPS.MAX_WALL_CLOCK_PER_TASK als Worker-Timeout durch.
-      const result = await spawnDispatchWorker(repoRoot, role, prompt, undefined, CAPS.MAX_WALL_CLOCK_PER_TASK, onChunk);
+      const result = await spawnDispatchWorker(repoRoot, role, header, undefined, CAPS.MAX_WALL_CLOCK_PER_TASK, onChunk);
 
       // ── Caps-Enforcement: Zaehler deterministisch im Code hochzaehlen ────────
       // Semantik:
@@ -729,6 +921,21 @@ export default function (pi: ExtensionAPI) {
       // Post-Call Cap-Check: Zaehler oder Kostenlimit koennte jetzt ueberschritten sein.
       const postErr = checkCaps();
       if (postErr) {
+        // CCS-036.11: Override-Limit erreicht → NICHT erneut um Override bitten
+        // (sonst Endlosschleife: approve → reset → Cap → approve …). Hart pausieren.
+        if (postErr.startsWith("CAP_OVERRIDE_LIMIT")) {
+          const pausedMsg = await pausePipeline(
+            repoRoot,
+            null,
+            "CAP_OVERRIDE_LIMIT",
+            `Cap override limit reached after ${role} worker: ${postErr}`,
+            `auto-override budget exhausted (${capsState.overridesConsumed}/${CAPS.MAX_CAP_OVERRIDES}) — human must intervene manually`,
+          );
+          return {
+            content: [{ type: "text", text: `PIPELINE PAUSED — no further auto-overrides.\n${pausedMsg}\n\nWorker output was:\n${result.result.slice(0, 2000)}` }],
+            details: { role, ...result, cap_exceeded: postErr, paused: true },
+          };
+        }
         const humanMsg = await requestHuman(
           repoRoot,
           null,
@@ -801,10 +1008,16 @@ export default function (pi: ExtensionAPI) {
     name: "request_human",
     label: "Request Human Intervention",
     description: [
-      "Signals that human intervention is required. Writes state to .pi/orchestrator-state.json.",
+      "Asks the human a question via Slack and BLOCKS until they reply (up to 900s).",
       "Use for: Spec approval (GATE₀), cap exceeded, open questions from planner.",
-      "Returns: HUMAN_REQUIRED: <reason> | task=<id> phase=<phase>",
-      "IMPORTANT: After calling this tool, STOP and wait. Do not proceed to next pipeline step.",
+      "Returns one of these canonical prefixes (exact literals):",
+      "  HUMAN_APPROVED: <text>         — human approved (non-cap phase: GATE0_SPEC/OPEN_QUESTION); proceed to next step.",
+      "  HUMAN_ANSWERED: <text>         — human gave free-text answer (non-cap phase); incorporate into plan, then re-run GATE0 before DEV.",
+      "  HUMAN_APPROVED_OVERRIDE: ...   — human approved cap override (CAP_EXCEEDED/GATE1_RETRIES/REVIEW_RETRIES); retry failed step once.",
+      "  CANCELLED_BY_HUMAN: ...        — human said abort/cancel/nein; STOP immediately (no Done set).",
+      "  HUMAN_REQUIRED/PAUSED: ...     — Slack timeout/unavailable; pipeline paused, use file-flag resume.",
+      "IMPORTANT: On CANCELLED or PAUSED, STOP. On APPROVED/ANSWERED/APPROVED_OVERRIDE, continue pipeline.",
+      "NOTE: HUMAN_ANSWERED_OVERRIDE does NOT exist — never expect it.",
     ].join("\n"),
     parameters: Type.Object({
       task_id: Type.Optional(Type.String({ description: "Current task ID (if known)" })),
@@ -948,14 +1161,21 @@ STEP 2 — SPEC
   CRITICAL — check planner output BEFORE anything else:
   If planner output contains the literal string "OPEN QUESTION":
     Extract the full OPEN QUESTION text (everything after "OPEN QUESTION:").
-    Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Planner open question (answer before spec approval): <extracted question>")
-    STOP immediately. Do NOT proceed to STEP 3 or any further step.
-    (The human must answer the question and re-run the pipeline with their answer.)
+    Call: request_human(task_id=<id>, phase="OPEN_QUESTION", reason="Planner open question: <extracted question>")
+    Read the return value:
+      - Starts with "HUMAN_APPROVED:" → human approved; incorporate implicit answer and proceed to STEP 3.
+      - Starts with "HUMAN_ANSWERED:" → incorporate the free-text answer into the plan; then proceed to STEP 3 (do NOT go directly to DEV).
+      - Starts with "CANCELLED_BY_HUMAN:" → STOP. Report "Cancelled by human."
+      - Starts with "HUMAN_REQUIRED/PAUSED:" → STOP. Pipeline paused; resume via file-flag.
 
 STEP 3 — GATE₀ (Spec Gate — Human Approval MANDATORY)
   This step is NON-OPTIONAL. ALWAYS call request_human here, even if the plan looks good.
   Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Spec ready for human approval. Plan summary: <first 2 lines of planner output>")
-  STOP. Do NOT call dispatch_worker(builder) until the human says "approved" or you see .pi/orchestrator-resume.
+  Read the return value:
+    - Starts with "HUMAN_APPROVED:" → human approved; proceed to STEP 4 (DEV).
+    - Starts with "HUMAN_ANSWERED:" → human gave a free-text comment; incorporate into plan; call request_human AGAIN for GATE0_SPEC (do NOT proceed to DEV yet).
+    - Starts with "CANCELLED_BY_HUMAN:" → STOP. Report "Cancelled by human."
+    - Starts with "HUMAN_REQUIRED/PAUSED:" → STOP. Pipeline paused; resume via file-flag.
   This gate exists because: Human-Oversight-Pflicht (Org-Regel) requires human spec approval before code is written.
 
 STEP 4 — DEV (repeat up to MAX_DEV_RETRIES times if gates fail)
@@ -965,7 +1185,10 @@ STEP 4 — DEV (repeat up to MAX_DEV_RETRIES times if gates fail)
     dev_retries += 1
     If dev_retries > MAX_DEV_RETRIES:
       Call: request_human(task_id=<id>, phase="GATE1_RETRIES", reason="Gates failed after ${CAPS.MAX_DEV_RETRIES} retries: <failed-gates>")
-      STOP.
+      Read the return value:
+        - Starts with "HUMAN_APPROVED_OVERRIDE:" → cap overridden; continue with one more builder retry.
+        - Starts with "CANCELLED_BY_HUMAN:" → STOP. Report "Cancelled by human."
+        - Starts with "HUMAN_REQUIRED/PAUSED:" → STOP.
     Else:
       Call: dispatch_worker(role="builder", prompt="Gates failed: <gate-log>. Fix only the failing tests/lint. Do not change anything else.")
       Repeat run_gates check.
@@ -976,7 +1199,10 @@ STEP 5 — REVIEW
     review_retries += 1
     If review_retries > MAX_REVIEW_RETRIES:
       Call: request_human(task_id=<id>, phase="REVIEW_RETRIES", reason="Reviewer rejected after ${CAPS.MAX_REVIEW_RETRIES} retries: <findings>")
-      STOP.
+      Read the return value:
+        - Starts with "HUMAN_APPROVED_OVERRIDE:" → cap overridden; continue with one more builder+review cycle.
+        - Starts with "CANCELLED_BY_HUMAN:" → STOP. Report "Cancelled by human."
+        - Starts with "HUMAN_REQUIRED/PAUSED:" → STOP.
     Else:
       Call: dispatch_worker(role="builder", prompt="Reviewer rejected. Findings:\n<findings>\nFix exactly these issues.")
       Go back to run_gates, then re-dispatch reviewer.
@@ -987,22 +1213,30 @@ STEP 6 — DONE
 
 RESUME PROTOCOL:
   When you see ".pi/orchestrator-resume exists" in your prompt or context:
-  - The human has approved. Continue from the NEXT step after the last GATE₀/intervention.
+  - The human has approved via file-flag (Slack was unavailable). Continue from the NEXT step after the last paused phase.
   - Read .pi/orchestrator-state.json to find: task_id, phase, reason.
-  - If phase is "GATE0_SPEC": proceed to STEP 4 (DEV) with the previously planned spec.
-  - If phase is "GATE1_RETRIES" or "REVIEW_RETRIES": call request_human again with update, then STOP.
+  - If phase is "GATE0_SPEC" or "OPEN_QUESTION": proceed to STEP 4 (DEV) with the previously planned spec.
+  - If phase is "GATE1_RETRIES" or "REVIEW_RETRIES": treat as override approved; resume builder/review cycle.
   - If .pi/orchestrator-resume-cancel exists: STOP, report "Cancelled by human."
 
 RULES (non-negotiable):
 - Call tools in STEP ORDER only. Never skip a step.
 - GATE₀ (STEP 3) is MANDATORY — never skip it, never go from SPEC directly to DEV.
-- OPEN QUESTION in planner output → request_human immediately, do NOT proceed.
+- OPEN QUESTION in planner output → request_human immediately, then act on the return value.
+- request_human NOW RETURNS the human's answer. Read the prefix to decide:
+  HUMAN_APPROVED: → proceed to next step (non-cap approval).
+  HUMAN_ANSWERED: → incorporate free-text; re-run GATE0 before DEV (never skip re-gate).
+  HUMAN_APPROVED_OVERRIDE: → cap override granted; retry failed step once.
+  CANCELLED_BY_HUMAN: → STOP immediately (no Done set).
+  HUMAN_REQUIRED/PAUSED: → STOP; pipeline paused; resume via file-flag.
+  NOTE: HUMAN_ANSWERED_OVERRIDE does NOT exist — never expect it.
+- intervention (Cap exceeded, retries exhausted) → request_human → act on return value. Never set Done without human approval.
 - You have NO code tools (no read, write, edit, bash). Never attempt to use them.
 - Never mark Done if gates FAIL or reviewer REJECTED.
 - Never git push. Push and merge are HUMAN actions only.
 - If uncertain about anything: call request_human, not improvise.
 - Dev ≠ Review: builder and reviewer are always separate worker dispatches (different sessions — Org-Compliance).
-- intervention (Cap exceeded, retries exhausted) → request_human → STOP. Never set Done.
+- intervention (Cap exceeded, retries exhausted) → request_human → act on return value. Never set Done without approval.
 `,
     };
   });
@@ -1017,6 +1251,11 @@ RULES (non-negotiable):
       process.exit(1);
     }
     repoRoot = ctx.cwd;
+
+    // Portabilitaet: CC_SETUP_DIR zeigt auf die cc-setup-Installation (Maschinerie).
+    // Ohne Env-Variable: Fallback auf repoRoot (= bisheriges cc-setup-Verhalten).
+    // Lock/Kill/State bleiben immer in repoRoot/.pi/ (gehoeren ins Ziel-Repo).
+    ccSetupDir = process.env["CC_SETUP_DIR"] || repoRoot;
 
     // Sicherstellen dass .pi/ existiert
     const piDir = join(repoRoot, ".pi");

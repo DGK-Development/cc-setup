@@ -17,9 +17,12 @@
  *                              laufen isoliert, redactor-Hook gilt nur in der Hauptsession.
  *   env: { ...process.env } — env ERSETZT process.env vollständig im SDK (kein Merge).
  *                              Spread ist Pflicht, sonst fehlt PATH/ANTHROPIC_API_KEY.
- *   permissionMode: 'auto'  — Headless ohne User-Prompt (Worker läuft unbeaufsichtigt).
- *                             'bypassPermissions' würde allowDangerouslySkipPermissions:true
- *                             erfordern — NICHT genutzt.
+ *   permissionMode:'default' — zusammen mit canUseTool der Headless-Approver.
+ *     + canUseTool           'bypassPermissions' wird unter der Enterprise-Managed-Policy
+ *                            NICHT honoriert (headless-auto-deny → Worker bleibt stecken);
+ *                            'auto' ist nur ein Modell-Klassifizierer. canUseTool lässt
+ *                            genau die Tools der Rolle (Frontmatter `tools`) zu und lehnt
+ *                            alles andere ab — verifiziert mit SDK v0.3.168.
  *
  * Tool-Name-Mapping (CLI-Name → SDK-Name):
  *   read → Read, write → Write, edit → Edit, bash → Bash, grep → Grep,
@@ -59,17 +62,9 @@ export interface DispatchOpts {
   /** Falls true: alle system-Messages auf stderr ausgeben (inkl. thinking_tokens u.ä. Rauschen) */
   debug?: boolean;
   /**
-   * Rolle des Workers — steuert permissionMode.
-   * 'builder': bypassPermissions + allowDangerouslySkipPermissions (darf Write/Edit/Bash ausführen).
-   * Alle anderen: 'auto' (kein Bypass, kein interaktiver Prompt im headless Betrieb).
-   *
-   * Begründung: settingSources:[] isoliert den Worker von ~/.claude/settings.json und
-   * externen Hooks (inkl. redactor). Mit 'auto' würde der Worker Tool-Calls bei
-   * fehlender Permission interaktiv blockieren, was im headless pi-Betrieb hängt.
-   * 'bypassPermissions' + allowDangerouslySkipPermissions erlaubt dem builder alle
-   * zugelassenen Tools ohne Prompt. Damage-control + Caps bleiben pi-seitig aktiv.
-   * User-Autorisierung: privater repo-lokaler Einsatz, Human-Oversight-Pflicht gilt
-   * weiterhin (nur der User merged PRs; builder hat kein 'git push').
+   * Rolle des Workers (planner | builder | reviewer) — nur für Logging/Label.
+   * Permissions laufen NICHT über die Rolle, sondern über den canUseTool-Approver
+   * in buildQueryOpts: zugelassen sind genau die Tools der Rolle (Frontmatter `tools`).
    */
   role?: string;
 }
@@ -205,30 +200,40 @@ export function buildQueryOpts(
   // CLI-Tool-Namen → SDK-Kapitalisierung
   const sdkTools = roleDef.tools ? cliToolsToSdkTools(roleDef.tools) : [];
 
-  // ── Permission-Mode pro Rolle ─────────────────────────────────────────────
-  // builder: bypassPermissions + allowDangerouslySkipPermissions
-  //   → darf Write/Edit/Bash ohne interaktiven Prompt ausführen.
-  //   Begründung: settingSources:[] lädt keine Hooks; 'auto' würde im headless
-  //   Betrieb bei Tool-Calls hängen (kein Terminal für User-Prompt vorhanden).
-  //   Damage-control + Caps bleiben pi-seitig (cc-orchestrator.ts) aktiv.
-  //   User-autorisiert: privater Einsatz; Human-Oversight via Gate₀ + Review.
-  // planner / reviewer / default: 'auto'
-  //   → read-only Rollen nutzen kein Bypass (kein Write/Edit/Bash erlaubt).
-  //   'auto' reicht hier, weil nur lesende Tools (Read, Grep, Glob) verwendet
-  //   werden und diese im headless Modus keine Permission-Prompts auslösen.
-  const isBuilder = (opts.role ?? "") === "builder";
-  const permissionMode = isBuilder ? "bypassPermissions" : "auto";
+  // ── Headless-Permissions: canUseTool-Whitelist-Approver ───────────────────
+  // WICHTIG (verifiziert mit SDK v0.3.168 unter Enterprise-Managed-Policy):
+  //   - permissionMode:'auto'  = MODELL-Klassifizierer (nicht "auto-allow").
+  //   - permissionMode:'bypassPermissions' wird hier NICHT honoriert — die
+  //     Managed-Policy (Human-Oversight) deaktiviert Bypass; headless folgt ein
+  //     "headless-agent auto-deny", d.h. Write/Edit/Bash werden still verweigert.
+  //     Das war die eigentliche Steckenbleib-Ursache: der Worker bekommt seine
+  //     Tool-Calls verweigert und "fragt" dann im Output nach Genehmigung.
+  //   - allowedTools allein reicht NICHT (wurde trotz Whitelisting auto-denied).
+  // Lösung: permissionMode:'default' + ein expliziter canUseTool-Callback, der
+  // genau die Tools der Rolle (sdkTools) zulässt und alles andere ablehnt. Das
+  // ist der dokumentierte programmatische Approver ("Called before each tool
+  // execution to determine if it should be allowed"). Keine bypass-Flags nötig.
+  // Damage-control + Caps bleiben pi-seitig (cc-orchestrator.ts) aktiv; Human-
+  // Oversight bleibt über Gate₀ + Review + "kein git push" gewahrt.
+  const allowSet = new Set(sdkTools);
+  const canUseTool = async (
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> => {
+    if (allowSet.has(toolName)) {
+      return { behavior: "allow", updatedInput: input };
+    }
+    return { behavior: "deny", message: `Tool "${toolName}" not in worker whitelist [${[...allowSet].join(", ")}]` };
+  };
 
   const queryOpts: Record<string, unknown> = {
     model,
     // tools: begrenzt die verfügbare Tool-Basis; leer = kein Built-in-Tool
     tools: sdkTools.length > 0 ? sdkTools : ([] as string[]),
-    // allowedTools: auto-allow ohne Prompt — gleiche Liste wie tools (kein extra Confirm)
-    allowedTools: sdkTools.length > 0 ? sdkTools : undefined,
-    permissionMode,
-    // allowDangerouslySkipPermissions: Pflicht für bypassPermissions (SDK-Requirement).
-    // Nur für builder gesetzt; für andere Rollen explizit false.
-    allowDangerouslySkipPermissions: isBuilder,
+    // permissionMode:'default' → jeder Tool-Call läuft durch canUseTool (unser Approver).
+    permissionMode: "default",
+    // canUseTool: programmatischer Headless-Approver (Whitelist = sdkTools der Rolle).
+    canUseTool,
     // settingSources: [] = SDK isolation mode.
     // Lädt KEINE ~/.claude/settings.json und KEINE externen Hooks (inkl. redactor).
     // Explizit autorisiert vom User für den pi-Workflow: Worker laufen isoliert,

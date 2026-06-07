@@ -2,6 +2,90 @@
 
 Append-only Entscheidungs-Log (neueste oben). Status: `proposed` · `accepted` · `superseded`.
 
+## 007 — Neuer Meilenstein: Launcher-Pre-Decomposition per `milestone-planner`-Worker + Human-Gate
+`accepted` · 2026-06-07
+
+**Context.** Bei `pio` → „Neuer Meilenstein" pickte der Orchestrator stumpf den global nächsten
+To-Do (`backlog_next`); CCS-036.07 hatte den Neu-Fall offen gelassen. Der Meilenstein wurde nie
+in Tasks ausgearbeitet.
+
+**Decision.** Die Zerlegung passiert **im Launcher vor `pi`**, nicht als Orchestrator-Schritt:
+`pi-launch.sh` dispatcht einen starken Claude-SDK-Worker (`.pi/agents/milestone-planner.md`,
+read+bash, sonnet), der das Ziel in 3–7 atomare Tasks zerlegt und als **Drafts** anlegt
+(`backlog task create --draft -m`). **Human-Gate**: Drafts werden gezeigt → `promote` (To Do)
+oder `archive`; ohne Freigabe kein `pi`. Danach `CC_ORCH_MILESTONE` + scoped Prompt → Pipeline
+**unverändert**. Alternative (Orchestrator-STEP-0) verworfen: würde dem schwachen gemma-Modell
+einen neuen Branch aufbürden (CCS-036.14). Siehe CCS-036.15.
+
+**Consequences.** + Orchestrator bleibt mechanisch; starke Zerlegung; Mensch kontrolliert den
+Meilenstein-Scope. − Meilenstein-Logik an zwei Orten (Launcher + Orchestrator); Live-Pfad noch
+ohne automatischen Integrationstest (Folge-AC).
+
+## 006 — pi-Worker Headless-Permissions via `canUseTool`, nicht `bypassPermissions`
+`accepted` · 2026-06-07
+
+**Context.** Der Builder-Worker (Agent SDK, `settingSources:[]`) bekam Write/Bash still
+verweigert und „fragte" endlos nach Genehmigung — trotz `permissionMode:'bypassPermissions'`
++ `allowDangerouslySkipPermissions`. Verifiziert (SDK v0.3.168): unter der **Enterprise-Managed-
+Policy** dieser Org wird Bypass nicht honoriert (headless-auto-deny); `'auto'` ist nur ein
+Modell-Klassifizierer; `allowedTools` allein reicht nicht.
+
+**Decision.** `cc-dispatch.ts` nutzt `permissionMode:'default'` + einen expliziten
+**`canUseTool`-Whitelist-Approver** (lässt genau die Rollen-Tools aus dem Frontmatter `tools` zu,
+lehnt Rest ab). Zusätzlich hängt der Orchestrator den **echten Repo-Root + Autonomie-Ansage**
+deterministisch vor den Worker-Prompt (gegen erfundene Absolut-Pfade). Siehe CCS-036.10.
+
+**Consequences.** + Worker führen Tools real aus (builder/reviewer); robust gegen Org-Policy;
+kein bypass-Flag-Risiko. − Worker-Toolbreite hängt allein am `tools`-Frontmatter; Egress-Schutz
+im Worker weiterhin via isolierter Session + „kein git push" (nicht via redactor-Hook).
+
+## 005 — pi-Rückfragen blockierend über Slack (Kanal `C0B8R3ERUNR`) statt File-Flag-Resume
+`accepted` · 2026-06-07 · **verfeinert 004 (F)**
+
+**Context.** Das Human-Gate aus 004 (F) war datei-basiert/asynchron: `requestHuman` schrieb
+`.pi/orchestrator-state.json`, schickte eine ntfy-Push und wartete auf `touch .pi/orchestrator-resume`
+— **plus manuellen pi-Neustart**. Das ist kein „fragen und auf Antwort warten": jede Spec-Gate-Pause
+brach den Lauf ab. Genau das verhinderte den voll-autonomen E2E (CCS-035 AC#1 blieb offen — der reale
+`just orchestrate`-Lauf pausierte am Spec-Gate und musste manuell neu gestartet werden).
+
+**Decision.**
+
+**(A) Blockierende Slack-Rückfrage als Primärweg.** `requestHuman` stellt die Frage an den Slack-Kanal
+`C0B8R3ERUNR` und **wartet blockierend** auf die menschliche Antwort (`scripts/slack-ask.ts` →
+spawnt das vorhandene `SlackNotify.py` mit `send` dann `poll`, Default-Timeout 900s). Die Antwort wird
+klassifiziert (`classifyHumanAnswer` → `approve | abort | answer`) und als Prefix-Tool-Result
+zurückgegeben; pi fährt **im selben Prozess** mit dem korrekten Folge-STEP fort. Gilt für **alle**
+Interventionen (Spec-Gate, OPEN QUESTION, Cap-/Retry-Überschreitung) — User-Entscheidung.
+
+**(B) Kanonisches Prefix-Schema (Code-Rückgabe ↔ System-Prompt identisch, kein Orphan).**
+- `HUMAN_APPROVED:` — non-cap-Phase, Zustimmung → nächster STEP.
+- `HUMAN_ANSWERED:` — non-cap-Phase, Freitext → in Plan einarbeiten; bei GATE0 **erneut** Gate (kein blindes DEV).
+- `HUMAN_APPROVED_OVERRIDE:` — Cap-Phase, non-abort → `capsOverridePending` (consume-on-use, ein Retry).
+- `CANCELLED_BY_HUMAN:` — abort/cancel/nein → STOP, kein Done.
+- `HUMAN_REQUIRED/PAUSED:` — Fallback (siehe C).
+
+**(C) Fallback erhalten.** Bei Slack-Timeout/Fehler (`answered:false`) greift der bestehende Pfad
+unverändert: `orchestrator-state`-Datei + ntfy + File-Flag-Resume (`touch .pi/orchestrator-resume`).
+Das alte Verfahren bleibt als Sicherheitsnetz, nicht als Primärweg.
+
+**(D) `just pi`-Launcher.** `scripts/pi-launch.sh` (Recipe `just pi`) fragt programmatisch die offenen
+Meilensteine ab (sprint_bridge `survey`), lässt den Operator „weiter bei Meilenstein X / neuer
+Meilenstein" wählen, baut daraus den pi-Prompt und startet das **interaktive** pi mit beiden Extensions
+— statt die lange pi-Kommandozeile abzutippen. `just orchestrate` bleibt als direkter Start ohne Frage.
+
+**(E) Token-Hygiene (Org-Compliance).** Der Slack-Token kommt ausschließlich aus `SLACK_BOT_TOKEN`
+(env) — **kein Literal** in `slack-ask.ts` oder im Repo. Fehlt der Token → strukturiertes Fehlerobjekt,
+kein Crash (Fallback C greift).
+
+**Consequences.**
+- Ermöglicht einen **unbeaufsichtigten E2E** ohne manuellen pi-Neustart am Spec-Gate (löst CCS-035 AC#1 ein).
+- Human-Oversight bleibt strukturell: der Mensch muss aktiv im Kanal antworten und kann jederzeit `abort`.
+- Neue Laufzeit-Abhängigkeit (Slack + `SLACK_BOT_TOKEN`) — durch Fallback (C) abgesichert.
+- Restrisiko (Minor, Folge-Task CCS-036.06): wiederholte GATE0-Freitext-Antworten → Re-Gate-Schleife;
+  Mitigation via `gate0Retries`-Cap offen.
+- Verweis: `knowledge/orchestrator-workflow.md`, `scripts/slack-ask.ts`, `.pi/extensions/cc-orchestrator.ts`,
+  Workflow-Visual `knowledge/gated-agentic-workflow.html`.
+
 ## 004 — pi-Orchestrator: agent-team-Dispatcher (lokales gemma4:12b-mlx) + Claude Agent SDK Worker
 `accepted` · 2026-06-07
 
