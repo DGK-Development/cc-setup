@@ -10,7 +10,7 @@ function escapeRegExp(s: string): string {
  * ATX markdown headers of the given levels, in document order. Fenced code
  * blocks are skipped so a `# comment` inside ``` is not mistaken for a heading.
  */
-function mdHeaders(text: string, levels: number[] = [1, 2]): string[] {
+export function mdHeaders(text: string, levels: number[] = [1, 2]): string[] {
   const out: string[] = [];
   let inFence = false;
   for (const line of text.split("\n")) {
@@ -27,7 +27,7 @@ function mdHeaders(text: string, levels: number[] = [1, 2]): string[] {
 }
 
 /** Rough token estimate (~chars/4). A budget gauge, not a real tokenizer. */
-function estTokens(text: string): number {
+export function estTokens(text: string): number {
   return Math.floor(([...text].length + 3) / 4);
 }
 
@@ -38,7 +38,7 @@ function estTokens(text: string): number {
  * — e.g. `title: >-` followed by the wrapped title. Folded (`>`) joins with
  * spaces, literal (`|`) keeps newlines.
  */
-function frontmatterField(text: string, field: string): string {
+export function frontmatterField(text: string, field: string): string {
   const lead = text.replace(/^﻿+/, "");
   if (!lead.startsWith("---")) return "";
   const end = lead.indexOf("\n---", 3);
@@ -74,7 +74,7 @@ function frontmatterField(text: string, field: string): string {
 }
 
 /** Format epoch seconds as local `YYYY-MM-DD HH:MM` ('' if falsy/unknown). */
-function fmtMtime(mt: number | null | undefined): string {
+export function fmtMtime(mt: number | null | undefined): string {
   if (!mt) return "";
   const d = new Date(mt * 1000);
   const p = (n: number) => String(n).padStart(2, "0");

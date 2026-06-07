@@ -34,7 +34,7 @@ const HOME = Deno.env.get("HOME") ?? "/tmp";
 // discover_projects + resolve_project_cwd
 // ---------------------------------------------------------------------------
 
-function discoverProjects(
+export function discoverProjects(
   activeRepo: string,
   base?: string,
 ): Promise<Array<{ name: string; path: string }>> {
@@ -42,7 +42,7 @@ function discoverProjects(
   return discoverProjectsIn(base ? [base] : projectRoots(), activeRepo);
 }
 
-function resolveProjectCwd(
+export function resolveProjectCwd(
   project: string,
   projects: Array<{ name: string; path: string }>,
   defaultCwd: string,
@@ -59,7 +59,7 @@ function resolveProjectCwd(
 // build_context
 // ---------------------------------------------------------------------------
 
-async function buildContext(
+export async function buildContext(
   cwd: string,
   claudeHome?: string,
   opts?: {
@@ -132,7 +132,7 @@ function fmtCompact(n: unknown): string {
   return String(Math.floor(v));
 }
 
-function fmtCost(v: unknown): string {
+export function fmtCost(v: unknown): string {
   let n: number;
   try {
     n = parseFloat(String(v));
@@ -148,7 +148,7 @@ function fmtCost(v: unknown): string {
 // build_data — maps collector cards into the browser DATA object
 // ---------------------------------------------------------------------------
 
-function buildData(
+export function buildData(
   context: Record<string, unknown>,
   view: "overview" | "project" = "overview",
 ): Record<string, unknown> {
@@ -846,3 +846,4 @@ function buildData(
 }
 
 // Re-export repoRoot for use in server.ts
+export { repoRoot };

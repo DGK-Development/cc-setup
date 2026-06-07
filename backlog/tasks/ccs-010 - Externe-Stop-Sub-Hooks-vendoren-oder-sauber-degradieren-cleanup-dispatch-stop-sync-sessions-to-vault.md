@@ -3,11 +3,11 @@ id: CCS-010
 title: >-
   Externe Stop-Sub-Hooks vendoren oder sauber degradieren (cleanup-dispatch-stop
   + sync-sessions-to-vault)
-status: In Progress
+status: To Do
 assignee:
   - '@claude'
 created_date: '2026-06-05 05:13'
-updated_date: '2026-06-07 08:26'
+updated_date: '2026-06-07 11:51'
 labels:
   - infra
   - hooks
@@ -53,6 +53,8 @@ Deployment-Mechanik verifiziert: deploy.sh kopiert jede hooks/*.sh nach CC_SETUP
 2026-06-07: Vom pi-Orchestrator-E2E-Lauf gepickt (PICK->SPEC, gemma4:12b-mlx interaktiv). planner stellte OPEN QUESTION (Pfad cleanup-dispatch-stop.sh) -> Pipeline am GATE0_SPEC pausiert (Spec-Gate/Human-Oversight greift wie spezifiziert). ANTWORT auf die Frage: cleanup-dispatch-stop.sh + sync-sessions-to-vault.sh liegen LIVE unter ~/.claude/hooks/ (absolut, NICHT im Repo) -> Vendor-Ziel hooks/ im Repo, sonst sauber degradieren. Status: wartet auf User-Entscheidung resume/cancel. Kein Code geaendert (planner read-only).
 
 Spec-Gate freigegeben (.pi/orchestrator-resume gesetzt). HINWEIS vor dem Build: just test ist im Working-Tree ROT wegen UNRELATED deno-knowledge-app-Refactor (export von collectTokens/collectSidebar/collectGlobal entfernt) -> GATE1 wuerde scheitern, unabhaengig von CCS-010. Empfehlung: deno-Arbeit vorher stashen (git stash push -- deno-knowledge-app/). HEAD ist gruen.
+
+2026-06-07: Status-Korrektur To Do. Wurde beim just-pi-Test vom globalen backlog_next (vor CCS-036.07 milestone-scoped PICK) faelschlich als naechster Task gegriffen und auf In Progress gesetzt; keine Arbeit erfolgt. Inhaltlich unveraendert offen.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

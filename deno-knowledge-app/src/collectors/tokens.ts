@@ -159,7 +159,7 @@ async function sessionMtimes(dir: string): Promise<Map<string, number>> {
 }
 
 /** Haupt-Export: native Version von collectTokens, kein Python-Spawn. */
-async function collectTokens(cwd: string): Promise<Record<string, unknown>> {
+export async function collectTokens(cwd: string): Promise<Record<string, unknown>> {
   try {
     const dir = sessionsDir(cwd);
     const mtimes = await sessionMtimes(dir);

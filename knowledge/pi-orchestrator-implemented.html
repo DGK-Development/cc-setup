@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pi-Orchestrator — Ist-Stand (CCS-035/036)</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg-raised: #161b22; --bg-inset: #0a0e13;
+    --line: #21262d; --line-bright: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --text-faint: #6e7681;
+    --accent: #ff5630; --accent-soft: rgba(255,86,48,0.12);
+    --green: #3fb950; --green-soft: rgba(63,185,80,0.12);
+    --amber: #d29922; --amber-soft: rgba(210,153,34,0.12);
+    --red: #f85149; --red-soft: rgba(248,81,73,0.1);
+    --purple: #a371f7; --purple-soft: rgba(163,113,247,0.13);
+    --blue: #58a6ff; --blue-soft: rgba(88,166,255,0.12);
+    --mono: "SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans: ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(255,86,48,0.05), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(88,166,255,0.04), transparent 40%);
+    color: var(--text); font-family: var(--sans); line-height: 1.65;
+    -webkit-font-smoothing: antialiased; padding: 0 24px 120px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+
+  header { padding: 72px 0 44px; border-bottom: 1px solid var(--line); margin-bottom: 56px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .eyebrow::before { content: ""; width: 28px; height: 1px; background: var(--accent); }
+  h1 { font-size: clamp(30px,5vw,50px); line-height: 1.06; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 20px; }
+  h1 .gt { color: var(--text-faint); font-weight: 400; }
+  .lede { font-size: 18px; color: var(--text-dim); max-width: 720px; }
+  .principle { margin-top: 30px; font-family: var(--mono); font-size: 14px; color: var(--text); border-left: 2px solid var(--accent); padding: 8px 0 8px 18px; background: var(--accent-soft); border-radius: 0 6px 6px 0; }
+
+  section { margin-bottom: 76px; scroll-margin-top: 24px; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px; }
+  .sec-num { font-family: var(--mono); font-size: 13px; color: var(--accent); font-weight: 500; flex-shrink: 0; }
+  h2 { font-size: 27px; font-weight: 600; letter-spacing: -0.01em; }
+  .sec-sub { color: var(--text-dim); margin: 4px 0 28px; max-width: 760px; }
+  h3.sub { font-size: 16px; font-weight: 600; margin: 28px 0 14px; color: var(--text); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 32px; font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .legend span { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+  .card.pi { border-top: 2px solid var(--amber); }
+  .card.cc { border-top: 2px solid var(--blue); }
+  .card.hu { border-top: 2px solid var(--purple); }
+  .card h3 { font-size: 15.5px; font-weight: 600; display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--text-dim); }
+  .card p strong { color: var(--text); font-weight: 600; }
+  .card ul { list-style: none; margin: 8px 0 0; padding: 0; }
+  .card li { font-size: 13.5px; color: var(--text-dim); padding: 3px 0 3px 16px; position: relative; }
+  .card li::before { content: "▸"; position: absolute; left: 0; color: var(--text-faint); }
+  .card code, .map-how code, p code { font-family: var(--mono); font-size: 12.5px; color: var(--blue); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+  .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 8px; border-radius: 5px; font-weight: 500; }
+  .tag.pi { color: var(--amber); background: var(--amber-soft); }
+  .tag.cc { color: var(--blue); background: var(--blue-soft); }
+  .tag.hu { color: var(--purple); background: var(--purple-soft); }
+  .tag.det { color: var(--green); background: var(--green-soft); }
+
+  /* pipeline flow */
+  .flow { display: flex; flex-direction: column; gap: 0; margin-top: 8px; }
+  .stage { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; display: flex; align-items: flex-start; gap: 16px; }
+  .stage .ico { width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; font-family: var(--mono); font-size: 12px; font-weight: 700; flex-shrink: 0; text-align: center; line-height: 1.1; }
+  .ico.pi { background: var(--amber-soft); color: var(--amber); }
+  .ico.cc { background: var(--blue-soft); color: var(--blue); }
+  .ico.hu { background: var(--purple-soft); color: var(--purple); }
+  .ico.det { background: var(--green-soft); color: var(--green); }
+  .stage .body { flex: 1; }
+  .stage .body h4 { font-size: 15px; font-weight: 600; margin-bottom: 3px; display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+  .stage .body p { font-size: 13.5px; color: var(--text-dim); margin: 0; }
+  .stage .cond { margin-top: 8px; font-family: var(--mono); font-size: 12px; color: var(--text-dim); background: var(--bg-inset); border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px; white-space: pre-wrap; }
+  .stage .cond b { color: var(--text); font-weight: 600; }
+  .stage .cond .y { color: var(--green); } .stage .cond .n { color: var(--red); } .stage .cond .h { color: var(--purple); }
+  .connector { width: 2px; height: 22px; background: var(--line-bright); margin-left: 40px; }
+  .connector.loop { background: repeating-linear-gradient(var(--purple) 0 4px, transparent 4px 9px); }
+
+  /* tables */
+  .tbl { width: 100%; border-collapse: collapse; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+  .tbl th, .tbl td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl tr:last-child td { border-bottom: 0; }
+  .tbl th { background: var(--bg-inset); color: var(--text-dim); font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 500; }
+  .tbl td code, .tbl th code { font-family: var(--mono); font-size: 12px; color: var(--blue); }
+  .tbl td.ph { font-family: var(--mono); font-size: 12.5px; color: var(--amber); white-space: nowrap; }
+  .tbl td strong { color: var(--text); }
+
+  .code { background: var(--bg-inset); border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 13px; line-height: 1.7; overflow-x: auto; margin: 20px 0; }
+  .code-bar { display: flex; align-items: center; gap: 7px; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--text-faint); font-size: 11.5px; }
+  .code-bar .d { width: 10px; height: 10px; border-radius: 50%; }
+  .code-body { padding: 16px 18px; color: var(--text); white-space: pre; }
+  .c-com { color: var(--text-faint); font-style: italic; } .c-key { color: var(--accent); } .c-str { color: var(--green); } .c-fn { color: var(--blue); } .c-kw { color: var(--purple); }
+
+  .callout { margin-top: 24px; background: var(--accent-soft); border: 1px solid rgba(255,86,48,0.3); border-radius: 12px; padding: 20px 24px; }
+  .callout.blue { background: var(--blue-soft); border-color: rgba(88,166,255,0.3); }
+  .callout.amber { background: var(--amber-soft); border-color: rgba(210,153,34,0.3); }
+  .callout h4 { font-size: 15.5px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .callout.amber h4, .callout h4 { color: var(--accent); } .callout.blue h4 { color: var(--blue); } .callout.amber h4 { color: var(--amber); }
+  .callout p { font-size: 14px; color: var(--text-dim); margin: 0 0 6px; } .callout p:last-child { margin-bottom: 0; }
+  .callout p strong { color: var(--text); }
+
+  /* verdict bar for §00 */
+  .verdict { display: grid; gap: 10px; }
+  .vrow { display: grid; grid-template-columns: 130px 1fr; gap: 0; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .vrow .vk { padding: 13px 15px; font-family: var(--mono); font-size: 12px; border-right: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  .vrow .vv { padding: 13px 16px; font-size: 13.5px; color: var(--text-dim); }
+  .vrow .vv strong { color: var(--text); }
+  .pill { font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 5px; font-weight: 600; }
+  .pill.yes { color: var(--green); background: var(--green-soft); }
+  .pill.part { color: var(--amber); background: var(--amber-soft); }
+  .pill.no { color: var(--red); background: var(--red-soft); }
+
+  footer { border-top: 1px solid var(--line); padding-top: 28px; color: var(--text-faint); font-family: var(--mono); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+  @media (max-width: 720px) {
+    body { padding: 0 16px 80px; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .vrow { grid-template-columns: 1fr; }
+    .vrow .vk { border-right: 0; border-bottom: 1px solid var(--line); }
+    .tbl, .tbl tbody, .tbl tr, .tbl td, .tbl th { display: block; }
+    .tbl th { display: none; }
+    .tbl td { border-bottom: 0; }
+    .tbl tr { border-bottom: 1px solid var(--line); padding: 6px 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">cc-setup · pi-Orchestrator · Ist-Stand</div>
+    <h1>Gated Agentic Workflow<br><span class="gt">// wie aktuell implementiert (CCS-035 / CCS-036)</span></h1>
+    <p class="lede">Ein <strong>zweistufiger</strong> Loop: ein schwaches lokales Modell (<b>pi/gemma</b>) sequenziert mechanisch, delegiert jeden intelligenten Schritt an <b>Claude-Worker</b>, und der Mensch entscheidet an jedem kritischen Gate — per <b>pi-Eingabebox ODER Slack</b>. Deterministische Gates und Caps sichern den Rahmen.</p>
+    <div class="principle">Schwaches Modell orchestriert · starkes Modell arbeitet · Mensch gibt frei. Push nur auf Branch, nach gesehener Diff.</div>
+  </header>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--amber)"></i>pi / gemma (Orchestrator)</span>
+    <span><i class="dot" style="background:var(--blue)"></i>Claude-Worker (Agent SDK)</span>
+    <span><i class="dot" style="background:var(--purple)"></i>Mensch (Slack / pi-Fenster)</span>
+    <span><i class="dot" style="background:var(--green)"></i>deterministisch (Script, kein LLM)</span>
+  </div>
+
+  <!-- ===================== 00 · ABGLEICH ===================== -->
+  <section id="abgleich">
+    <div class="sec-head"><span class="sec-num">00</span><h2>Wurde es so genutzt wie im Konzept-Dokument?</h2></div>
+    <p class="sec-sub">Das Dokument <code>gated-agentic-workflow.html</code> beschreibt das <em>Konzept</em> aus dem Talk (ADR/PRD/BDD/Cucumber, Git-Hook-Gates on commit/push/PR, ein Agent im Harness). Die cc-setup-Implementierung übernimmt den <strong>Geist</strong>, weicht in der <strong>Mechanik</strong> aber bewusst ab:</p>
+
+    <div class="verdict">
+      <div class="vrow"><div class="vk"><span class="pill yes">JA</span></div><div class="vv"><strong>Backlog.md als Management-Layer.</strong> Spec = Milestone, darunter Subtasks als Arbeitseinheiten, Fortschritt zweistufig (done/total je Milestone). 1:1 wie beschrieben.</div></div>
+      <div class="vrow"><div class="vk"><span class="pill yes">JA</span></div><div class="vv"><strong>Gated &amp; fail-fast.</strong> Mensch gibt Regeln/„Warum" vor, Agenten arbeiten im gesicherten Rahmen, ein deterministisches Gate + Reviewer erzwingen Qualität; rotes Gate → Task nicht Done.</div></div>
+      <div class="vrow"><div class="vk"><span class="pill part">TEILS</span></div><div class="vv"><strong>Der „Agent".</strong> Im Talk: <em>ein</em> Agent im Harness. Hier: <strong>zwei Stufen</strong> — ein schwaches lokales <b>pi/gemma</b> als mechanischer Sequencer + austauschbare <b>Claude-Worker</b> (planner/builder/reviewer/milestone-planner) via Agent SDK.</div></div>
+      <div class="vrow"><div class="vk"><span class="pill part">TEILS</span></div><div class="vv"><strong>Das Gate.</strong> Statt Git-Hooks <code>on commit/push/PR</code> + Cucumber: ein <b>deterministisches <code>run-gates.sh</code></b> (just/npm/cargo/deno test, auto-detektiert) am DONE-Schritt + ein <b>Reviewer-Worker</b>. Keine BDD/Cucumber-Schicht.</div></div>
+      <div class="vrow"><div class="vk"><span class="pill no">NEU</span></div><div class="vv"><strong>Explizite Human-Gates.</strong> Über das Konzept hinaus: Spec-Freigabe (GATE₀), Cap-Override, Publish- und Weiter-Freigabe — jeweils <b>via Slack ODER pi-Fenster</b>. Mehr Human-in-the-loop als im Talk.</div></div>
+      <div class="vrow"><div class="vk"><span class="pill no">ANDERS</span></div><div class="vv"><strong>Merge.</strong> Kein automatischer PR-Merge. Der Orchestrator pusht nach Freigabe auf einen <b>Feature-Branch <code>pio/&lt;id&gt;</code></b> (nie <code>main</code>, nie force); der Merge nach <code>main</code> bleibt manueller Mensch-Schritt.</div></div>
+      <div class="vrow"><div class="vk"><span class="pill no">FEHLT</span></div><div class="vv">ADR/PRD/BDD-Spec-Kette + Cucumber-„executable spec" + die UI/Test/ADR-<strong>Skills</strong> sind <b>nicht</b> Teil dieser Implementierung. Spec = Backlog-Task-Beschreibung + Planner-Output + Human-GATE₀.</div></div>
+    </div>
+
+    <div class="callout amber">
+      <h4>⊟ Kurzfassung</h4>
+      <p><strong>Backlog ja, exakt wie beschrieben.</strong> <strong>pi: ja, aber als zweistufiger Orchestrator</strong> (nicht der Einzel-Agent des Talks). Das Gate ist <code>run-gates.sh</code> + Reviewer statt Hook/Cucumber, und es gibt deutlich mehr explizite Slack/TUI-Freigaben. Die Kernidee „Mensch setzt Rahmen, Agent arbeitet gated, fail-fast" ist erfüllt.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 01 · AKTEURE ===================== -->
+  <section id="akteure">
+    <div class="sec-head"><span class="sec-num">01</span><h2>Drei Akteure — wer macht was</h2></div>
+    <p class="sec-sub">Die Aufgabentrennung ist der Kern: das billige lokale Modell trifft <em>keine</em> inhaltlichen Entscheidungen, das teure Modell sieht nur seinen eng umrissenen Auftrag, der Mensch gatet.</p>
+
+    <div class="grid grid-3">
+      <div class="card pi">
+        <h3><span class="tag pi">pi / gemma</span></h3>
+        <p><strong>Orchestrator</strong> — lokal (ollama, <code>gemma4:12b</code>), läuft als pi-Extension <code>cc-orchestrator.ts</code>. Mechanischer Sequencer, <b>keine</b> Code-Tools.</p>
+        <ul>
+          <li>6 Tools: <code>backlog_next</code>, <code>backlog_set</code>, <code>dispatch_worker</code>, <code>run_gates</code>, <code>request_human</code>, <code>mark_done</code></li>
+          <li>folgt nur der Pipeline (STEP 1–8), improvisiert nicht</li>
+          <li>Tool-Lock via <code>setActiveTools</code></li>
+        </ul>
+      </div>
+      <div class="card cc">
+        <h3><span class="tag cc">Claude</span></h3>
+        <p><strong>Worker</strong> — via Claude Agent SDK (<code>cc-dispatch.ts</code>, <code>query()</code>), isoliert (<code>settingSources:[]</code>), Permissions über <code>canUseTool</code>-Whitelist.</p>
+        <ul>
+          <li><b>planner</b> — Plan + AC + Dateien + Risiken (read-only)</li>
+          <li><b>builder</b> — implementiert, committet lokal, <b>kein push</b></li>
+          <li><b>reviewer</b> — APPROVE/REJECT + Findings, fährt Tests</li>
+          <li><b>milestone-planner</b> — zerlegt neuen Meilenstein in Drafts</li>
+        </ul>
+      </div>
+      <div class="card hu">
+        <h3><span class="tag hu">Mensch</span></h3>
+        <p><strong>Gatekeeper</strong> — antwortet an jedem Gate <b>im pi-Fenster ODER via Slack</b> (was zuerst kommt). Fallback bei Timeout: ntfy-Push + Datei-Flag-Resume.</p>
+        <ul>
+          <li>Spec-Freigabe (GATE₀), Cap-Override</li>
+          <li>Publish-Freigabe (sieht den Diff), Weiter-Freigabe</li>
+          <li>Merge nach <code>main</code> (immer manuell)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 02 · PIPELINE ===================== -->
+  <section id="pipeline">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Die Pipeline — Schritte &amp; Bedingungen</h2></div>
+    <p class="sec-sub">Ein Task durchläuft STEP 1–8. STEP 7/8 stecken im <code>mark_done</code>-Toolcall (robust gegen gemma-Hänger). Farbe = wer den Schritt fährt.</p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="ico pi">1<br>PICK</div>
+        <div class="body"><h4>PICK <span class="tag pi">pi</span></h4>
+          <p><code>backlog_next</code> → nächster <code>To Do</code>-Task, gescoped auf <code>CC_ORCH_MILESTONE</code>; <code>[Meilenstein]</code>-Parents werden übersprungen. Dann <code>backlog_set In Progress</code>.</p>
+          <div class="cond"><b>Bedingung:</b> kein offener Task → <span class="n">STOP</span> („no actionable tasks").</div>
+        </div>
+      </div>
+      <div class="connector"></div>
+
+      <div class="stage">
+        <div class="ico cc">2<br>SPEC</div>
+        <div class="body"><h4>SPEC <span class="tag cc">Claude planner</span></h4>
+          <p><code>dispatch_worker(planner)</code> → nummerierter Plan, geschärfte AC, zu ändernde Dateien, Risiken.</p>
+          <div class="cond"><b>Bedingung:</b> Planner gibt <b>"OPEN QUESTION"</b> aus → <span class="h">request_human(OPEN_QUESTION)</span> → Antwort einarbeiten, dann GATE₀.</div>
+        </div>
+      </div>
+      <div class="connector"></div>
+
+      <div class="stage">
+        <div class="ico hu">3<br>GATE₀</div>
+        <div class="body"><h4>GATE₀ · Spec-Freigabe <span class="tag hu">Mensch · PFLICHT</span></h4>
+          <p><code>request_human(GATE0_SPEC)</code> — der <b>vollständige</b> Planner-Plan wird mitgeschickt (nicht nur 2 Zeilen).</p>
+          <div class="cond"><span class="y">approve</span> → STEP 4 · <span class="h">Freitext</span> → einarbeiten, GATE₀ erneut · <span class="n">cancel</span> → STOP · <span class="n">PAUSED</span> (Slack-Timeout) → STOP, Resume via Datei-Flag</div>
+        </div>
+      </div>
+      <div class="connector"></div>
+
+      <div class="stage">
+        <div class="ico cc">4<br>DEV</div>
+        <div class="body"><h4>DEV + GATE₁ <span class="tag cc">Claude builder</span> <span class="tag det">run_gates</span></h4>
+          <p><code>dispatch_worker(builder)</code> implementiert + committet lokal → <code>run_gates</code> (deterministisch). Diff der geänderten Dateien wird angehängt.</p>
+          <div class="cond"><span class="y">PASS</span>/<span class="y">SKIP</span> (keine Gates konfiguriert) → STEP 5 · <span class="n">FAIL</span> → builder-Fix, erneut <code>run_gates</code> (bis <b>MAX_DEV_RETRIES=2</b>), dann <span class="h">request_human(GATE1_RETRIES)</span></div>
+        </div>
+      </div>
+      <div class="connector"></div>
+
+      <div class="stage">
+        <div class="ico cc">5<br>REVIEW</div>
+        <div class="body"><h4>REVIEW <span class="tag cc">Claude reviewer</span></h4>
+          <p><code>dispatch_worker(reviewer)</code> → Diff-Review gegen AC, fährt Tests. Separate Session vom builder (dev≠review).</p>
+          <div class="cond"><span class="y">APPROVE</span> → STEP 6 · <span class="n">REJECT</span> → builder-Fix → run_gates → erneut Review (bis <b>MAX_REVIEW_RETRIES=1</b>), dann <span class="h">request_human(REVIEW_RETRIES)</span></div>
+        </div>
+      </div>
+      <div class="connector"></div>
+
+      <div class="stage">
+        <div class="ico pi">6<br>DONE</div>
+        <div class="body"><h4>DONE <span class="tag pi">pi · mark_done</span> <span class="tag det">re-check</span></h4>
+          <p><code>mark_done</code> prüft Gates erneut code-seitig, hakt AC ab, setzt Final-Summary, Status → <code>Done</code>.</p>
+          <div class="cond"><b>Bedingung:</b> Kill-Switch/Cap aktiv ODER Gate rot → <span class="n">Done NICHT gesetzt</span>, bleibt In Progress.</div>
+        </div>
+      </div>
+      <div class="connector"></div>
+
+      <div class="stage">
+        <div class="ico hu">7<br>PUBLISH</div>
+        <div class="body"><h4>PUBLISH · Push-Freigabe <span class="tag hu">Mensch</span> <span class="tag pi">pi push</span></h4>
+          <p>In <code>mark_done</code>: Diff via Slack/TUI → <code>request_human(PUBLISH)</code>.</p>
+          <div class="cond"><span class="y">approve</span> → <code>publishTask</code>: dirty? gezielt nachcommitten (kein <code>-A</code>); <code>git branch -f pio/&lt;id&gt;</code> + <code>push -u origin</code> — <b>nie main, nie force</b> · sonst → <span class="n">kein Push</span> (Task bleibt Done, lokal committet)</div>
+        </div>
+      </div>
+      <div class="connector loop"></div>
+
+      <div class="stage">
+        <div class="ico hu">8<br>NEXT</div>
+        <div class="body"><h4>NEXT · Weiter-Freigabe <span class="tag hu">Mensch</span></h4>
+          <p>In <code>mark_done</code>: nächsten <code>To Do</code> peeken (+ Beschreibung) → <code>request_human(NEXT_TASK)</code>.</p>
+          <div class="cond"><span class="y">approve</span> → <b>CONTINUE_NEXT</b> → zurück zu STEP 1 (↻ Task-für-Task) · <span class="n">nein</span> / kein nächster Task → <b>PIPELINE_DONE</b> → STOP</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout blue">
+      <h4>↻ Der Loop</h4>
+      <p><code>PICK → SPEC → GATE₀ → DEV+GATE₁ → REVIEW → DONE → PUBLISH → NEXT</code> — und bei „weiter" zurück zu PICK. So wird ein ganzer Milestone Task für Task abgearbeitet, mit menschlicher Freigabe an Spec, Push und Übergang.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 03 · GATES ===================== -->
+  <section id="gates">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Gates &amp; Bedingungen</h2></div>
+    <p class="sec-sub">Zwei deterministische Qualitäts-Tore (kein LLM) plus der Reviewer. „Done" ist code-erzwungen, nicht modell-behauptet.</p>
+
+    <table class="tbl">
+      <thead><tr><th>Gate</th><th>Wer</th><th>Wie / Bedingung</th></tr></thead>
+      <tbody>
+        <tr><td class="ph">GATE₁ · run_gates</td><td><span class="tag det">Script</span></td><td><code>run-gates.sh</code> auto-detektiert: <code>justfile→just test</code> · <code>package.json→npm test</code> · <code>Cargo.toml→cargo test</code> · <code>deno.json→deno task test</code> · oder <code>.pi/gates</code>. <strong>Keine Gates konfiguriert → SKIP = PASS</strong> (lautes Log; ADR 008), damit Doku/Sandbox-Repos nicht fail-closed hängen.</td></tr>
+        <tr><td class="ph">REVIEW</td><td><span class="tag cc">reviewer</span></td><td>Eigener Claude-Worker prüft Diff gegen AC, Bugs, Security, Patterns, fährt Tests. <code>VERDICT: APPROVE|REJECT</code> + nummerierte Findings. Separate Session vom builder.</td></tr>
+        <tr><td class="ph">mark_done</td><td><span class="tag pi">pi</span></td><td>Vor <code>Done</code>: Gates erneut grün (sonst BLOCKED), AC abgehakt, Final-Summary gesetzt. Bei rotem Gate/Cap/Kill-Switch bleibt der Task <code>In Progress</code>.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ===================== 04 · HUMAN GATES ===================== -->
+  <section id="human">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Human-Gates — via Slack <em>oder</em> pi-Fenster</h2></div>
+    <p class="sec-sub">Jede <code>request_human</code>-Frage läuft als <strong>Race</strong>: Slack-Poll (Kanal <code>C0B8R3ERUNR</code>) <em>und</em> lokale pi-Eingabebox (<code>ctx.ui.input</code>) gleichzeitig — die erste Antwort gewinnt, der Verlierer wird abgebrochen. Antwort wird klassifiziert: <code>ja/ok/approved</code> · <code>nein/cancel/abort</code> · Freitext.</p>
+
+    <table class="tbl">
+      <thead><tr><th>Phase</th><th>Wann</th><th>Antwort bewirkt</th></tr></thead>
+      <tbody>
+        <tr><td class="ph">OPEN_QUESTION</td><td>Planner ist sich unsicher (STEP 2)</td><td>Freitext/approve → in Plan einarbeiten → GATE₀ · abort → STOP</td></tr>
+        <tr><td class="ph">GATE0_SPEC</td><td>STEP 3 · <strong>immer</strong> (Pflicht)</td><td>approve → DEV · Freitext → re-gate · cancel → STOP. Voller Plan ist angehängt.</td></tr>
+        <tr><td class="ph">GATE1_RETRIES</td><td>Gates nach 2 Builder-Versuchen rot</td><td>Override → ein weiterer Versuch · cancel/PAUSE → STOP</td></tr>
+        <tr><td class="ph">REVIEW_RETRIES</td><td>Reviewer nach 1 Fix-Zyklus weiter REJECT</td><td>Override → ein weiterer Builder+Review-Zyklus · cancel → STOP</td></tr>
+        <tr><td class="ph">CAP_EXCEEDED</td><td>Retry-/Kosten-/Zeit-Cap überschritten</td><td>Override → genau ein Schritt weiter (begrenzt, s. §05)</td></tr>
+        <tr><td class="ph">CAP_OVERRIDE_LIMIT</td><td>nach <b>2</b> Overrides ohne Fortschritt</td><td><strong>kein</strong> weiterer Override → harte Pause (pausePipeline)</td></tr>
+        <tr><td class="ph">PUBLISH</td><td>STEP 7 · nach Done, Diff angehängt</td><td>approve → Push auf <code>pio/&lt;id&gt;</code> · sonst kein Push</td></tr>
+        <tr><td class="ph">NEXT_TASK</td><td>STEP 8 · nächster Task + Beschreibung</td><td>approve → Loop zu STEP 1 · nein → Pipeline-Ende</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <h4>⏸ Fallback, wenn niemand antwortet</h4>
+      <p>Slack-Timeout (900 s) <em>und</em> keine lokale Eingabe → <code>pausePipeline</code>: schreibt <code>.pi/orchestrator-state.json</code>, sendet <strong>ntfy</strong>-Push, gibt <code>HUMAN_REQUIRED/PAUSED</code> zurück. Fortsetzen mit <code>touch .pi/orchestrator-resume</code> (oder <code>…-resume-cancel</code>).</p>
+    </div>
+  </section>
+
+  <!-- ===================== 05 · CAPS ===================== -->
+  <section id="caps">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Caps, Kill-Switch &amp; Isolation</h2></div>
+    <p class="sec-sub">Code-seitig erzwungen in <code>cc-orchestrator.ts</code> — nicht modellabhängig. Pro Task in <code>backlog_next</code> zurückgesetzt.</p>
+
+    <div class="grid grid-3">
+      <div class="card"><h3>Retries &amp; Budget</h3><ul>
+        <li><code>MAX_DEV_RETRIES = 2</code></li>
+        <li><code>MAX_REVIEW_RETRIES = 1</code></li>
+        <li><code>MAX_COST_USD_PER_TASK = 5</code></li>
+        <li><code>MAX_WALL_CLOCK = 900 s</code></li>
+        <li><code>MAX_CAP_OVERRIDES = 2</code> → dann harte Pause</li>
+      </ul></div>
+      <div class="card"><h3>Stop-Mechanik</h3><ul>
+        <li>Kill-Switch: <code>touch .pi/orchestrator.kill</code></li>
+        <li>Single-flight-Lock: <code>.pi/orchestrator.lock</code></li>
+        <li>Cap/Kill aktiv → <code>mark_done</code> BLOCKED</li>
+      </ul></div>
+      <div class="card"><h3>Worker-Isolation</h3><ul>
+        <li><code>settingSources: []</code> (keine ~/.claude-Hooks)</li>
+        <li><code>permissionMode: 'default'</code> + <code>canUseTool</code></li>
+        <li>builder/reviewer dürfen <b>kein</b> <code>git push</code></li>
+        <li>Egress: redactor in der Hauptsession, nicht im Worker</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ===================== 06 · LAUNCHER ===================== -->
+  <section id="launcher">
+    <div class="sec-head"><span class="sec-num">06</span><h2>Start: <code>pio</code> / <code>just pi</code> — Meilenstein-Auswahl</h2></div>
+    <p class="sec-sub">Der Launcher <code>pi-launch.sh</code> ermittelt offene Meilensteine (<code>sprint_bridge survey</code>) und baut den pi-Prompt programmatisch. <strong>Neuer Meilenstein</strong> wird vor dem Build per Claude-Worker in Aufgaben ausgearbeitet.</p>
+
+    <table class="tbl">
+      <thead><tr><th>Auswahl</th><th>Was passiert</th></tr></thead>
+      <tbody>
+        <tr><td class="ph">Bestehender Meilenstein</td><td><code>CC_ORCH_MILESTONE</code> wird gesetzt → Pipeline gescoped auf diesen Meilenstein → <code>exec pi</code>.</td></tr>
+        <tr><td class="ph">Tasks direkt</td><td>Nur bei <b>0</b> offenen Meilensteinen: globaler PICK ohne Scope (statt Neu-Zwang). Auch robust, wenn <code>sprint_bridge</code> leer/fehlerhaft ist.</td></tr>
+        <tr><td class="ph">Neuer Meilenstein</td><td><b>milestone-planner</b>-Worker (Claude, sonnet) zerlegt das Ziel in 3–7 <b>Draft</b>-Tasks (<code>backlog task create --draft -m</code>) → <span style="color:var(--purple)">Human-Gate</span>: Drafts ansehen → <code>promote</code> (To Do) oder <code>archive</code> → <code>CC_ORCH_MILESTONE</code> → <code>exec pi</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f56"></span><span class="d" style="background:#ffbd2e"></span><span class="d" style="background:#27c93f"></span>&nbsp;&nbsp;Worker-Spawn (cc-dispatch.ts)</div>
+      <div class="code-body"><span class="c-com"># Claude Agent SDK query() — isoliert, programmatisch gegated</span>
+<span class="c-key">permissionMode</span>: <span class="c-str">'default'</span>   <span class="c-com"># bypassPermissions wird unter Enterprise-Policy ignoriert</span>
+<span class="c-key">canUseTool</span>:     Whitelist  <span class="c-com"># lässt genau die Rollen-Tools zu (ADR 006)</span>
+<span class="c-key">settingSources</span>: []         <span class="c-com"># keine ~/.claude-Settings/Hooks im Worker</span>
+<span class="c-key">tools</span>:          read,write,edit,bash,grep,find,ls  <span class="c-com"># je Rolle gefiltert</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>pi-Orchestrator · Ist-Stand · CCS-035 / CCS-036</span>
+    <span>cc-orchestrator.ts · cc-dispatch.ts · pi-launch.sh · run-gates.sh · ADR 006–009</span>
+  </footer>
+
+</div>
+</body>
+</html>

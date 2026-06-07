@@ -128,7 +128,7 @@ async function agentMeta(agentMd: string): Promise<AgentMeta> {
   }
 }
 
-async function collectGlobal(claudeHome: string): Promise<Record<string, unknown>> {
+export async function collectGlobal(claudeHome: string): Promise<Record<string, unknown>> {
   try {
     let stat: Deno.FileInfo;
     try {

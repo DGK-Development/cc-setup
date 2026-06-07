@@ -1,8 +1,12 @@
+
+
 <!-- CC-SETUP SCOPE -->
 > Diese Backlog-Regeln gelten NUR für `backlog/tasks/` (Repo-Tasks).
 > Vault-TaskNotes werden über `tasknotes_cli.py` gepflegt (nicht hiervon betroffen).
 > Sprint-Workflow: `/sprint-start`, `/sprint-finish`. Globaler Vertrag: `~/.claude/CLAUDE.md`.
 <!-- /CC-SETUP SCOPE -->
+
+When reporting information to me, be extremely concise and sacrifice gramar for sake of concision.
 
 <!-- BACKLOG.MD GUIDELINES START -->
 # Instructions for the usage of Backlog.md CLI Tool

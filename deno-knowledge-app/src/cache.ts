@@ -32,12 +32,12 @@ function ttlMs(): number {
 }
 
 /** Pure freshness predicate (testable without IO). */
-function isFresh(agg: Aggregate | null, ttl: number, now: number): boolean {
+export function isFresh(agg: Aggregate | null, ttl: number, now: number): boolean {
   return !!agg && (now - agg.generated_at) < ttl;
 }
 
 /** Pure freshness predicate fuer Per-Projekt-Cache-Eintraege. */
-function isProjectContextFresh(
+export function isProjectContextFresh(
   entry: { generated_at: number; context: Record<string, unknown> } | undefined,
   ttl: number,
   now: number,
@@ -45,7 +45,7 @@ function isProjectContextFresh(
   return !!entry && (now - entry.generated_at) < ttl;
 }
 
-async function readCacheFile(path = cacheFile()): Promise<Aggregate | null> {
+export async function readCacheFile(path = cacheFile()): Promise<Aggregate | null> {
   try {
     const obj = JSON.parse(await Deno.readTextFile(path)) as Aggregate;
     if (obj && typeof obj.generated_at === "number" && Array.isArray(obj.projects)) return obj;
@@ -55,7 +55,7 @@ async function readCacheFile(path = cacheFile()): Promise<Aggregate | null> {
   }
 }
 
-async function writeCacheFile(agg: Aggregate, path = cacheFile()): Promise<void> {
+export async function writeCacheFile(agg: Aggregate, path = cacheFile()): Promise<void> {
   try {
     await Deno.mkdir(dirname(path), { recursive: true });
     await Deno.writeTextFile(path, JSON.stringify(agg));
@@ -79,7 +79,7 @@ let refreshing: Promise<void> | null = null;
 let started = false; // true once a real server primed the cache (not in tests)
 
 /** Latest aggregate (in-memory). */
-function getAggregate(): Aggregate | null {
+export function getAggregate(): Aggregate | null {
   return current;
 }
 
@@ -114,7 +114,7 @@ function refreshAggregate(activeRepo: string, home: string): Promise<void> {
  * Lazy trigger for request handlers: kick off a refresh ONLY if the cache is
  * stale/missing AND none is already running. Non-blocking, fire-and-forget.
  */
-function ensureFresh(activeRepo: string, home: string): void {
+export function ensureFresh(activeRepo: string, home: string): void {
   if (!started) return; // never trigger heavy scans from a bare createHandler (tests)
   if (refreshing) return;
   if (isFresh(current, ttlMs(), Date.now())) return;
@@ -162,7 +162,7 @@ const projectContextGeneration = new Map<string, number>();
  * `projectKey` = aufgeloester Projektpfad (absoluter Pfad) fuer Konsistenz.
  * `computeFn` = die tatsaechliche buildContext-Berechnung.
  */
-async function getProjectContext(
+export async function getProjectContext(
   projectKey: string,
   computeFn: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
@@ -207,7 +207,7 @@ async function getProjectContext(
  * (commit/push/merge/delete/task-status) aufrufen, damit die naechste
  * Anfrage frische Daten sieht statt des alten Caches.
  */
-function invalidateProjectContext(projectKey: string): void {
+export function invalidateProjectContext(projectKey: string): void {
   projectContextCache.delete(projectKey);
   // Generations-Zaehler inkrementieren: eine in-flight computeFn liest den
   // Zaehler nach Abschluss erneut und verwirft ihr Ergebnis, wenn es sich
@@ -248,13 +248,13 @@ async function primeProjectContext(
 }
 
 // Fuer Tests: Cache-State resetten
-function _resetProjectContextCacheForTest(): void {
+export function _resetProjectContextCacheForTest(): void {
   projectContextCache.clear();
   projectContextInFlight.clear();
   projectContextGeneration.clear();
 }
 
 /** Nur fuer Tests: `started`-Flag setzen um Caching-Pfad zu aktivieren. */
-function _setStartedForTest(value: boolean): void {
+export function _setStartedForTest(value: boolean): void {
   started = value;
 }

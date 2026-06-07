@@ -15,7 +15,7 @@ const TASK_ID_RE = /^[A-Za-z]+-\d+(?:\.\d+)*$/;
  * Move a backlog task to a new status via `backlog task edit -s` (dev-data
  * mutation). Validates id + status to avoid injection. Used by the Kanban board.
  */
-async function setTaskStatus(
+export async function setTaskStatus(
   cwd: string,
   id: string,
   status: string,
@@ -73,7 +73,7 @@ async function parseTaskFile(fpath: string, filename: string): Promise<TaskRecor
   };
 }
 
-async function collectBacklog(cwd: string): Promise<Record<string, unknown>> {
+export async function collectBacklog(cwd: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
     const tasksDir = join(repo, "backlog", "tasks");

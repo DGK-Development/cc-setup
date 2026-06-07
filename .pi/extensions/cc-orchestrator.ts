@@ -6,7 +6,7 @@
  * an claude -p Worker delegiert oder als deterministischer Schritt (Gates, Backlog)
  * direkt ausgeführt.
  *
- * Pipeline: PICK → SPEC → GATE₀(Human) → DEV → GATE₁ → REVIEW → DONE → Human-Merge
+ * Pipeline: PICK → SPEC → GATE₀(Human) → DEV → GATE₁ → REVIEW → DONE → PUBLISH (Diff→Slack, push pio/<id> nur bei Human-Freigabe; main bleibt manuell)
  *
  * Vorlage: reference/pi-vs-claude-code/extensions/agent-team.ts
  * Reuse:   scripts/cc-dispatch.ts (dispatchWorker — NICHT dupliziert, über bun importiert)
@@ -40,6 +40,8 @@ import { spawn, spawnSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { classifyHumanAnswer } from "../../scripts/slack-ask.ts";
+import { decideOverride } from "../../scripts/caps-logic.ts";
+import { buildSpecBlock } from "../../scripts/gate0-spec.ts";
 
 // ── Caps-Konstanten ────────────────────────────────────────────────────────────
 
@@ -71,6 +73,87 @@ let lastPlannerOutput = "";
 // Aktueller Task (von backlog_next gesetzt) — damit JEDE Meldung Titel+ID trägt.
 let currentTask: { id: string; title: string } = { id: "", title: "" };
 
+// ── Observability-State (CCS-036.12): Live-Statusline + Fortschritts-Widget ──
+let pipelinePhase = "";                                   // z.B. "STEP 4 · DEV"
+let progressCache: { done: number; total: number } = { done: 0, total: 0 };
+let ctxPct: number | null = null;                         // Orchestrator-Context-Window-Auslastung %
+
+/** Merkt die aktuelle Context-Window-Auslastung des Orchestrators (für die Statusline). */
+function noteCtxUsage(ctx?: { getContextUsage?: () => { percent: number | null } | undefined }): void {
+  const u = ctx?.getContextUsage?.();
+  if (u && typeof u.percent === "number") ctxPct = u.percent;
+}
+
+/** ms → "2m14s" / "44s". */
+function fmtElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m${String(s % 60).padStart(2, "0")}s` : `${s}s`;
+}
+
+/** Kompakte Footer-Statusline: pio · <id> <done/total> · <phase> · ⏱<elapsed> · $<cost>. */
+function setStatusLine(ui?: PiUi): void {
+  if (!ui?.setStatus) return;
+  const tid = currentTask.id || "–";
+  const frac = progressCache.total > 0 ? ` ${progressCache.done}/${progressCache.total}` : "";
+  const elapsed = capsState.taskStartTs ? ` · ⏱${fmtElapsed(Date.now() - capsState.taskStartTs)}` : "";
+  const cost = capsState.totalCostUsd > 0 ? ` · $${capsState.totalCostUsd.toFixed(2)}` : "";
+  const ctx = ctxPct != null ? ` · ctx ${Math.round(ctxPct)}%` : "";
+  ui.setStatus("pio", `pio · ${tid}${frac} · ${pipelinePhase || "–"}${elapsed}${cost}${ctx}`);
+}
+
+/** Setzt die Phase und aktualisiert die Statusline in einem Rutsch. */
+function setPhase(phase: string, ui?: PiUi): void {
+  pipelinePhase = phase;
+  setStatusLine(ui);
+}
+
+/** Parst `cc-backlog mslist <ms>` (--plain, nach Status gruppiert) zu ID-Listen je Status. */
+async function milestoneProgress(repoRoot: string, milestone: string): Promise<{ done: string[]; progress: string[]; todo: string[] } | null> {
+  if (!milestone) return null;
+  const r = await runBacklogScript(repoRoot, ["mslist", milestone]);
+  if (r.exitCode !== 0) return null;
+  const out = { done: [] as string[], progress: [] as string[], todo: [] as string[] };
+  let section = "";
+  for (const raw of r.stdout.split("\n")) {
+    const sec = raw.match(/^(To Do|In Progress|Done):\s*$/);
+    if (sec) { section = sec[1]; continue; }
+    const stripped = raw.replace(/^\s+/, "").replace(/^\[[A-Z]+\]\s*/, "");
+    const m = stripped.match(/^([A-Za-z][A-Za-z0-9._-]+-[0-9.]+)\s+-\s+(.+)$/);
+    if (!m) continue;
+    if (/^\[Meilenstein\]/.test(m[2])) continue; // Container-Parents nicht mitzählen
+    if (section === "Done") out.done.push(m[1]);
+    else if (section === "In Progress") out.progress.push(m[1]);
+    else if (section === "To Do") out.todo.push(m[1]);
+  }
+  return out;
+}
+
+/** Aktualisiert das mehrzeilige Fortschritts-Widget (Meilenstein, done/jetzt/nächste). */
+async function refreshWidget(repoRoot: string, ui?: PiUi): Promise<void> {
+  if (!ui?.setWidget) return;
+  const ms = process.env["CC_ORCH_MILESTONE"] || "";
+  const lines: string[] = [];
+  if (ms) {
+    const p = await milestoneProgress(repoRoot, ms);
+    if (p) {
+      const total = p.done.length + p.progress.length + p.todo.length;
+      progressCache = { done: p.done.length, total };
+      lines.push(`⟦ ${ms} ⟧  ${p.done.length}/${total} done`);
+      if (p.done.length) lines.push(`✓ ${p.done.join(" · ")}`);
+      const curTitle = currentTask.title ? ` „${currentTask.title.length > 40 ? currentTask.title.slice(0, 38) + "…" : currentTask.title}"` : "";
+      if (currentTask.id) lines.push(`▶ ${currentTask.id}${curTitle} · ${pipelinePhase || "–"}`);
+      else if (p.progress.length) lines.push(`▶ ${p.progress.join(" · ")}`);
+      const upcoming = p.todo.filter((id) => id !== currentTask.id);
+      if (upcoming.length) lines.push(`… nächste: ${upcoming.slice(0, 5).join(" · ")}${upcoming.length > 5 ? " …" : ""}`);
+    }
+  } else {
+    lines.push("⟦ kein Meilenstein-Scope (Tasks direkt) ⟧");
+    if (currentTask.id) lines.push(`▶ ${currentTask.id} · ${pipelinePhase || "–"}`);
+  }
+  ui.setWidget("pio", lines.length ? lines : undefined, { placement: "aboveEditor" });
+}
+
 /** Pipeline-Schritt-Label je request_human-Phase — lesbare Meldungen statt nur "phase=GATE0_SPEC". */
 function phaseStep(phase: string): string {
   switch (phase) {
@@ -78,6 +161,8 @@ function phaseStep(phase: string): string {
     case "GATE0_SPEC":         return "STEP 3 · GATE₀ (Spec-Freigabe)";
     case "GATE1_RETRIES":      return "STEP 4 · GATE₁ (Retry-Override)";
     case "REVIEW_RETRIES":     return "STEP 5 · REVIEW (Retry-Override)";
+    case "PUBLISH":            return "STEP 7 · PUBLISH (Push-Freigabe)";
+    case "NEXT_TASK":          return "STEP 8 · NEXT (Weiter-Freigabe)";
     case "CAP_EXCEEDED":       return "Intervention (Cap)";
     case "CAP_OVERRIDE_LIMIT": return "Intervention (Cap-Limit)";
     default:                    return phase;
@@ -118,6 +203,43 @@ function builderChangeSummary(repoRoot: string): string {
 }
 
 /**
+ * Publish nach Human-Freigabe (User-Entscheid): pusht den Task auf einen Feature-Branch
+ * `pio/<id>` (NICHT main, NIE force). Bei dirty Working-Tree: gezielt die geänderten
+ * Dateien nachcommitten — Orchestrator-/Runtime-Rauschen (.pi/, .fallow, logs/, .gitignore)
+ * wird ausgeschlossen, KEIN `git add -A`/`.`. Der Branch wird ohne Checkout an HEAD gesetzt
+ * (kein Working-Tree-Wechsel). Gibt {ok, msg} zurück.
+ */
+function publishTask(repoRoot: string, id: string, title: string): { ok: boolean; msg: string } {
+  const NOISE = /^(\.pi\/|\.fallow|logs\/|\.gitignore|\.fallowrc\.json)/;
+  const git = (args: string[]): string => {
+    const r = spawnSync("git", ["-C", repoRoot, ...args], { encoding: "utf-8", timeout: 60000 });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")} → ${(r.stderr || r.stdout || "").trim()}`);
+    return (r.stdout || "").trim();
+  };
+  try {
+    const branch = `pio/${id}`;
+    // Dirty? → gezielt nachcommitten (kein -A, Noise raus).
+    const porcelain = git(["status", "--porcelain"]);
+    if (porcelain) {
+      const files = porcelain
+        .split("\n")
+        .map((l) => l.slice(3).replace(/^"|"$/g, "").trim())
+        .filter((f) => f && !NOISE.test(f));
+      if (files.length > 0) {
+        git(["add", "--", ...files]);
+        git(["commit", "-m", `${id}: ${title} (pio publish)`]);
+      }
+    }
+    // Branch an HEAD setzen (ohne Checkout) + auf Remote pushen — NIE main, NIE --force.
+    git(["branch", "-f", branch, "HEAD"]);
+    const pushOut = git(["push", "-u", "origin", branch]);
+    return { ok: true, msg: `gepusht → origin/${branch}${pushOut ? `\n${pushOut}` : ""}` };
+  } catch (e) {
+    return { ok: false, msg: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
  * Einmaliger consume-on-use Cap-Override.
  * Wird von requestHuman() gesetzt wenn der Mensch bei CAP_EXCEEDED/GATE1_RETRIES/REVIEW_RETRIES
  * mit "approve"/"continue" antwortet. precheck()/checkCaps() läst genau den nächsten Schritt
@@ -151,11 +273,9 @@ function resetCapsState(): void {
  */
 function checkCaps(): string | null {
   if (capsOverridePending) {
-    // CCS-036.11: Override-Schleife begrenzen. Ein Override resettet devRetries UND
-    // die Wall-Clock — ohne Obergrenze loopt das endlos (jeder Retry tript den Cap
-    // erneut, Human approved, reset, …). Ab MAX_CAP_OVERRIDES wird der Override NICHT
-    // mehr konsumiert: terminaler Fehler → Caller pausiert hart, statt neu zu fragen.
-    if (capsState.overridesConsumed >= CAPS.MAX_CAP_OVERRIDES) {
+    // CCS-036.11: Override-Entscheidung via decideOverride() (testbares Modul, scripts/caps-logic.ts)
+    const decision = decideOverride(capsState, CAPS.MAX_CAP_OVERRIDES);
+    if (decision.limitReached) {
       capsOverridePending = false; // Flag clearen, aber NICHT konsumieren/resetten
       console.error(`[cc-orchestrator] CAP_OVERRIDE_LIMIT reached (${capsState.overridesConsumed}/${CAPS.MAX_CAP_OVERRIDES}) — refusing further auto-override.`);
       return `CAP_OVERRIDE_LIMIT: max cap overrides (${CAPS.MAX_CAP_OVERRIDES}) reached — pipeline must pause (no further auto-overrides)`;
@@ -164,7 +284,7 @@ function checkCaps(): string | null {
     capsState.devRetries = Math.min(capsState.devRetries, CAPS.MAX_DEV_RETRIES);
     capsState.reviewRetries = Math.min(capsState.reviewRetries, CAPS.MAX_REVIEW_RETRIES);
     capsState.taskStartTs = Date.now(); // Wall-clock-Reset
-    capsState.overridesConsumed += 1;
+    capsState.overridesConsumed = decision.nextConsumed;
     capsOverridePending = false;
     console.error(`[cc-orchestrator] CAP OVERRIDE consumed (${capsState.overridesConsumed}/${CAPS.MAX_CAP_OVERRIDES}) — caps reset for this step only.`);
     return null;
@@ -208,6 +328,7 @@ function precheck(repoRoot: string): string | null {
 interface BacklogNextResult {
   id: string;
   title: string;
+  mode: "TODO" | "RESUME";
 }
 
 interface GateResult {
@@ -425,7 +546,7 @@ interface SlackAskSpawnResult {
  * Timeout: DEFAULT_TIMEOUT_SECS (900s) + 30s Buffer = 930s spawnSync-Äquivalent,
  * aber da wir async spawn nutzen, übergeben wir den Wert nur an das CLI (kein eigener Timer).
  */
-function spawnSlackAsk(repoRoot: string, question: string): Promise<SlackAskSpawnResult> {
+function spawnSlackAsk(repoRoot: string, question: string, signal?: AbortSignal): Promise<SlackAskSpawnResult> {
   return new Promise((resolve) => {
     const scriptPath = join(ccSetupDir || repoRoot, "scripts", "slack-ask.ts");
     const proc = spawn("bun", [scriptPath, question], {
@@ -433,6 +554,13 @@ function spawnSlackAsk(repoRoot: string, question: string): Promise<SlackAskSpaw
       cwd: repoRoot,
       env: { ...process.env },
     });
+
+    // Race-Verlierer: kam die Antwort zuerst lokal (TUI), wird der Slack-Subprozess gekillt.
+    const killProc = () => { try { proc.kill(); } catch { /* noop */ } };
+    if (signal) {
+      if (signal.aborted) killProc();
+      else signal.addEventListener("abort", killProc, { once: true });
+    }
 
     let stdout = "";
     let stderr = "";
@@ -745,65 +873,104 @@ async function pausePipeline(repoRoot: string, taskId: string | null, phase: str
   return `HUMAN_REQUIRED/PAUSED: [${phaseStep(phase)}] task=${taskTag(taskId ?? undefined)} phase=${phase} | ${reason} | detail=${detail} | state=${stateWritten ? "written" : "ERROR"} | resume: touch .pi/orchestrator-resume`;
 }
 
+// Strukturelle Teilmenge von ExtensionContext.ui — input()-Box (Gates) + Statusline/Widget
+// (Observability). Kein Import des pi-Typs nötig; ctx.ui passt strukturell.
+type PiUi = {
+  input(title: string, placeholder?: string, opts?: { signal?: AbortSignal; timeout?: number }): Promise<string | undefined>;
+  setStatus?(key: string, text: string | undefined): void;
+  setWidget?(key: string, content: string[] | undefined, options?: { placement?: "aboveEditor" | "belowEditor" }): void;
+};
+
 /**
- * Stellt dem Menschen eine Frage via Slack und wartet blockierend auf die Antwort.
- * Gibt einen strukturierten String zurück, der als Tool-Result an pi geht.
+ * Stellt dem Menschen eine Frage via Slack UND (falls TUI verfügbar) parallel via lokaler
+ * Eingabebox. Was zuerst kommt, gewinnt; der Verlierer wird abgebrochen. Gibt einen
+ * strukturierten String zurück (Prefix HUMAN_APPROVED:/… bleibt für das Modell parsebar).
  *
- * Fallback (Timeout/Slack-Fehler): pausePipeline() — schreibt .pi/orchestrator-state.json
- * + sendet ntfy + gibt "PAUSED…"-String zurück (identisch zum alten Verhalten).
+ * Fallback (Slack-Timeout/Fehler und keine lokale Antwort): pausePipeline() — state-file +
+ * ntfy + "PAUSED…"-String (file-flag-resumebar).
  */
-async function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string): Promise<string> {
+async function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string, attachment?: string, ui?: PiUi): Promise<string> {
   // ── Slack-Frage formulieren ────────────────────────────────────────────────
   // Bei GATE0_SPEC den VOLLSTÄNDIGEN Planner-Plan mitschicken (CCS-036.13), damit
   // der Mensch die echte Spec sieht statt einer 2-Zeilen-Zusammenfassung.
-  const specBlock = phase === "GATE0_SPEC" && lastPlannerOutput.trim()
-    ? ["", "──────── Vollständiger Plan (Spec) ────────", lastPlannerOutput.trim(), "───────────────────────────────────────────"]
+  const specBlock = buildSpecBlock(phase, lastPlannerOutput);
+  // attachment (z.B. Diff bei PUBLISH) — der Mensch sieht die Änderungen vor der Freigabe.
+  const attachBlock = attachment && attachment.trim()
+    ? ["", "──────── Diff ────────", attachment.trim(), "──────────────────────"]
     : [];
+  const approveHint = (phase === "GATE0_SPEC" || phase === "OPEN_QUESTION" || phase === "PUBLISH")
+    ? "Reply with your answer or 'ja'/'ok'/'approved' to proceed, 'nein'/'cancel'/'abort' to stop."
+    : "Reply 'ja'/'ok'/'approved'/'continue' to override and proceed, or 'nein'/'cancel'/'stop' to abort.";
   const question = [
     `[${phaseStep(phase)}] Task: ${taskTag(taskId ?? undefined)}`,
     `Reason: ${reason}`,
     ...specBlock,
+    ...attachBlock,
     "",
-    phase === "GATE0_SPEC" || phase === "OPEN_QUESTION"
-      ? "Reply with your answer or 'ja'/'ok'/'approved' to proceed, 'nein'/'cancel'/'abort' to stop."
-      : "Reply 'ja'/'ok'/'approved'/'continue' to override and proceed, or 'nein'/'cancel'/'stop' to abort.",
+    approveHint,
   ].join("\n");
-
-  console.error(`[cc-orchestrator] requestHuman: sending Slack question for ${phase}...`);
 
   // Tag mit echtem Pipeline-Schritt + Task-Titel. Steht NACH dem Prefix, damit das
   // Modell weiterhin auf "HUMAN_APPROVED:"/"HUMAN_ANSWERED:"/… (startsWith) prüfen kann.
   const tag = `[${phaseStep(phase)}] task=${taskTag(taskId ?? undefined)} phase=${phase}`;
+  const isCapPhase = phase === "CAP_EXCEEDED" || phase === "GATE1_RETRIES" || phase === "REVIEW_RETRIES";
 
-  const slackResult = await spawnSlackAsk(repoRoot, question);
-
-  // ── Antwort erhalten → klassifizieren ─────────────────────────────────────
-  if (slackResult.answered && slackResult.answer) {
-    const decision = classifyHumanAnswer(slackResult.answer);
-    console.error(`[cc-orchestrator] Slack answer received: "${slackResult.answer}" → decision: ${decision}`);
-
-    const isCapPhase = phase === "CAP_EXCEEDED" || phase === "GATE1_RETRIES" || phase === "REVIEW_RETRIES";
-
-    if (decision === "abort") {
-      return `CANCELLED_BY_HUMAN: ${tag} | ${slackResult.answer}`;
-    }
-
+  // Eine Antwort (lokal getippt ODER aus Slack) → strukturierter Return-String.
+  const classify = (answer: string, via: "tui" | "slack"): string => {
+    const decision = classifyHumanAnswer(answer);
+    console.error(`[cc-orchestrator] human answer via ${via}: "${answer}" → ${decision}`);
+    if (decision === "abort") return `CANCELLED_BY_HUMAN: ${tag} via=${via} | ${answer}`;
     if (isCapPhase) {
-      // Cap-Phasen: approve ODER answer (alles außer abort) → einmaliger Override
       capsOverridePending = true;
       console.error(`[cc-orchestrator] CAP OVERRIDE pending — next step will bypass cap check.`);
-      return `HUMAN_APPROVED_OVERRIDE: ${tag} | cap-override=pending | ${slackResult.answer}`;
+      return `HUMAN_APPROVED_OVERRIDE: ${tag} via=${via} | cap-override=pending | ${answer}`;
     }
+    if (decision === "approve") return `HUMAN_APPROVED: ${tag} via=${via} | ${answer}`;
+    return `HUMAN_ANSWERED: ${tag} via=${via} | ${answer}`;
+  };
 
-    // GATE0_SPEC / OPEN_QUESTION: approve → HUMAN_APPROVED:, Freitext → HUMAN_ANSWERED:
-    if (decision === "approve") {
-      return `HUMAN_APPROVED: ${tag} | ${slackResult.answer}`;
-    }
-    // answer (Freitext): in Plan/Spec einarbeiten; bei GATE0_SPEC erneut GATE0 durchlaufen
-    return `HUMAN_ANSWERED: ${tag} | ${slackResult.answer}`;
+  // ── Race: Slack-Antwort ODER lokale TUI-Eingabe (was zuerst kommt, gewinnt) ──
+  // Der Mensch kann direkt im pi-Fenster antworten, WÄHREND auf Slack gewartet wird.
+  console.error(`[cc-orchestrator] requestHuman: ${phase} — warte auf Slack${ui ? " ODER lokale TUI-Eingabe" : ""}...`);
+  const dialogAbort = new AbortController(); // schließt die TUI-Box, wenn Slack zuerst kommt
+  const slackAbort = new AbortController();  // killt den Slack-Subprozess, wenn TUI zuerst kommt
+
+  const localPromise: Promise<string | null> = ui
+    ? Promise.resolve(
+        ui.input(
+          `${phaseStep(phase)} — ${taskTag(taskId ?? undefined)}`,
+          "Antwort hier ODER via Slack — ja/ok · nein/abort · Freitext",
+          { signal: dialogAbort.signal },
+        ),
+      ).then((a) => (a == null ? null : a)).catch(() => null)
+    : new Promise<string | null>(() => { /* nie, wenn keine UI verfügbar */ });
+
+  const slackPromise = spawnSlackAsk(repoRoot, question, slackAbort.signal);
+
+  const winner = await new Promise<{ via: "local"; text: string } | { via: "slack"; res: SlackAskSpawnResult }>((resolve) => {
+    let settled = false;
+    const done = (w: { via: "local"; text: string } | { via: "slack"; res: SlackAskSpawnResult }) => {
+      if (!settled) { settled = true; resolve(w); }
+    };
+    // Lokale Antwort gewinnt nur, wenn sie nicht null/leer ist (Dialog-Abbruch zählt NICHT).
+    void localPromise.then((a) => { if (a != null && a.trim()) done({ via: "local", text: a.trim() }); });
+    // Slack-Auflösung (Antwort ODER Timeout/Fehler) gewinnt immer.
+    void slackPromise.then((res) => done({ via: "slack", res }));
+  });
+
+  if (winner.via === "local") {
+    slackAbort.abort(); // lokal beantwortet → Slack-Frage abbrechen
+    return classify(winner.text, "tui");
   }
 
-  // ── Kein Slack-Antwort (Timeout oder Fehler) → FALLBACK ───────────────────
+  // Slack hat zuerst aufgelöst → TUI-Box schließen.
+  dialogAbort.abort();
+  const slackResult = winner.res;
+  if (slackResult.answered && slackResult.answer) {
+    return classify(slackResult.answer, "slack");
+  }
+
+  // ── Weder lokale noch Slack-Antwort (Timeout/Fehler) → FALLBACK ───────────────────
   const fallbackReason = slackResult.timed_out
     ? `Slack timeout after 900s (no reply received)`
     : `Slack unavailable: ${slackResult.error ?? "unknown error"}`;
@@ -811,6 +978,65 @@ async function requestHuman(repoRoot: string, taskId: string | null, phase: stri
   console.error(`[cc-orchestrator] requestHuman fallback: ${fallbackReason}`);
 
   return await pausePipeline(repoRoot, taskId, phase, reason, fallbackReason);
+}
+
+/** Extrahiert die Description-Section aus `backlog task --plain`-Output (truncated). */
+function extractDescription(plain: string): string {
+  const lines = plain.split("\n");
+  const start = lines.findIndex((l) => /^Description:\s*$/.test(l));
+  if (start < 0) return "";
+  const out: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^-{3,}\s*$/.test(l)) continue; // Trennlinie unter "Description:"
+    if (/^(Acceptance Criteria|Implementation Plan|Implementation Notes|Definition of Done|Final Summary):\s*$/.test(l)) break;
+    out.push(l);
+  }
+  let s = out.join("\n").trim();
+  if (s.length > 600) s = s.slice(0, 600) + "…";
+  return s;
+}
+
+/**
+ * NEXT-Gate (User-Wunsch): peekt den nächsten To-Do-Task (milestone-scoped via
+ * CC_ORCH_MILESTONE), holt dessen Beschreibung und fragt den Menschen via Slack, ob die
+ * Pipeline mit ihm weitermachen soll. Gibt eine Direktive für den Orchestrator zurück:
+ *   "➡️ CONTINUE_NEXT: <id> …" → weiter zu STEP 1 (PICK) für <id>
+ *   "⏹️ PIPELINE_DONE: …"      → Stop
+ */
+async function nextTaskGate(repoRoot: string, ui?: PiUi): Promise<string> {
+  const peek = await runBacklogScript(repoRoot, ["next"]);
+  if (peek.exitCode !== 0 || !peek.stdout.trim()) {
+    return "⏹️ PIPELINE_DONE: keine weiteren To-Do-Tasks im Milestone.";
+  }
+  const parts = peek.stdout.split("\t");
+  const nextId = (parts[0] ?? "").trim();
+  const nextTitle = parts.slice(1).join("\t").trim();
+  if (!nextId) {
+    return "⏹️ PIPELINE_DONE: kein nächster Task erkennbar.";
+  }
+
+  let desc = "";
+  const show = await runBacklogScript(repoRoot, ["show", nextId]);
+  if (show.exitCode === 0) desc = extractDescription(show.stdout);
+  const attachment = desc ? `Beschreibung:\n${desc}` : "(keine Beschreibung hinterlegt)";
+
+  const human = await requestHuman(
+    repoRoot,
+    nextId,
+    "NEXT_TASK",
+    `Nächster Task: ${nextId} „${nextTitle}". Mit diesem Task weitermachen?`,
+    attachment,
+    ui,
+  );
+
+  if (human.startsWith("HUMAN_APPROVED:")) {
+    return `➡️ CONTINUE_NEXT: ${nextId} „${nextTitle}" — gehe zu STEP 1 (PICK) für diesen Task.`;
+  }
+  if (human.startsWith("CANCELLED_BY_HUMAN:")) {
+    return `⏹️ PIPELINE_DONE: vom Menschen gestoppt (nächster wäre ${nextId}).`;
+  }
+  return `⏹️ PIPELINE_DONE: keine klare Weiter-Freigabe (${human.split(" ")[0]}) → Stop (nächster wäre ${nextId}).`;
 }
 
 // ── Extension ─────────────────────────────────────────────────────────────────
@@ -824,10 +1050,12 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "backlog_next",
     label: "Backlog Next Task",
-    description: "Returns the next actionable 'To Do' task from the backlog. Output: { id, title }.",
+    description: "Returns the next actionable task from the backlog. Prefers 'To Do' tasks (MODE=TODO); falls back to the first 'In Progress' task when no To Do tasks remain (MODE=RESUME). Output: { id, title, mode }.",
     parameters: Type.Object({}),
 
-    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const ui = ctx?.hasUI ? (ctx.ui as PiUi) : undefined;
+      noteCtxUsage(ctx);
       // F3: Caps-State pro Task zurücksetzen (hier = Anfang von PICK, nicht session_start).
       // session_start setzt initial; dieser Reset stellt sicher, dass bei mehreren
       // Tasks pro Session devRetries/totalCostUsd nicht über Task-Grenzen akkumulieren.
@@ -842,13 +1070,39 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      // Output format: "<ID>\t<title>"
-      const parts = r.stdout.split("\t");
+      // Output format: "<ID>\t<title>\t<MODE>" (3 fields, MODE = TODO | RESUME)
+      // Backward-compat: if only 2 fields or mode not recognized, default to TODO.
+      const raw = r.stdout.trim();
+      const parts = raw.split("\t");
       const id = parts[0]?.trim() ?? "";
-      const title = parts.slice(1).join("\t").trim();
+      const lastPart = parts[parts.length - 1]?.trim() ?? "";
+      const VALID_MODES = new Set(["TODO", "RESUME"]);
+      let mode: "TODO" | "RESUME";
+      let title: string;
+      if (parts.length >= 3 && VALID_MODES.has(lastPart)) {
+        mode = lastPart as "TODO" | "RESUME";
+        title = parts.slice(1, -1).join("\t").trim();
+      } else {
+        mode = "TODO";
+        title = parts.slice(1).join("\t").trim();
+      }
 
-      const task: BacklogNextResult = { id, title };
+      const task: BacklogNextResult = { id, title, mode };
       currentTask = { id, title }; // für Titel in allen folgenden Meldungen
+
+      // Observability: Phase + Fortschritts-Widget (Task gewechselt → Widget neu).
+      setPhase(mode === "RESUME" ? "STEP 1 · PICK (RESUME)" : "STEP 1 · PICK", ui);
+      await refreshWidget(repoRoot, ui);
+
+      if (mode === "RESUME") {
+        return {
+          content: [{
+            type: "text",
+            text: `STEP 1 · PICK (RESUME) — ${id} „${title}"\nThis task is ALREADY In Progress (resume). Do NOT call backlog_set. The planner (STEP 2) must assess the existing plan/notes/checked AC and current diff, then plan only the REMAINING work.`,
+          }],
+          details: task,
+        };
+      }
 
       return {
         content: [{ type: "text", text: `STEP 1 · PICK — ${id} „${title}"` }],
@@ -869,7 +1123,9 @@ export default function (pi: ExtensionAPI) {
       status: Type.String({ description: "New status: 'In Progress', 'Done', 'To Do'" }),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const ui = ctx?.hasUI ? (ctx.ui as PiUi) : undefined;
+      noteCtxUsage(ctx);
       const { id, status } = params as { id: string; status: string };
       const r = await runBacklogScript(repoRoot, ["set", id, status]);
 
@@ -879,6 +1135,8 @@ export default function (pi: ExtensionAPI) {
           details: { id, status, error: r.stderr, exitCode: r.exitCode },
         };
       }
+
+      setStatusLine(ui);
 
       return {
         content: [{ type: "text", text: `STEP 1 · PICK — ${taskTag(id)} → ${status}` }],
@@ -906,8 +1164,10 @@ export default function (pi: ExtensionAPI) {
       prompt: Type.String({ description: "Task description or context to pass to the worker" }),
     }),
 
-    async execute(_toolCallId, params, _signal, onUpdate, _ctx) {
+    async execute(_toolCallId, params, _signal, onUpdate, ctx) {
       const { role, prompt } = params as { role: string; prompt: string };
+      const ui = ctx?.hasUI ? (ctx.ui as PiUi) : undefined;
+      noteCtxUsage(ctx);
 
       // Pre-Check: Kill-Switch + Caps vor jedem Worker-Dispatch
       const precheckErr = precheck(repoRoot);
@@ -925,6 +1185,9 @@ export default function (pi: ExtensionAPI) {
           details: { role, is_error: true },
         };
       }
+
+      // Observability: Phase aus der Rolle setzen, BEVOR der (lange) Worker läuft.
+      setPhase(role === "planner" ? "STEP 2 · SPEC" : role === "reviewer" ? "STEP 5 · REVIEW" : "STEP 4 · DEV", ui);
 
       if (onUpdate) {
         onUpdate({
@@ -982,6 +1245,7 @@ export default function (pi: ExtensionAPI) {
         capsState.reviewRetries += 1;
       }
       capsState.totalCostUsd += result.total_cost_usd || 0;
+      setStatusLine(ui); // Kosten/Dauer nach dem Worker aktualisieren
 
       // Post-Call Cap-Check: Zaehler oder Kostenlimit koennte jetzt ueberschritten sein.
       const postErr = checkCaps();
@@ -1005,7 +1269,9 @@ export default function (pi: ExtensionAPI) {
           repoRoot,
           null,
           "CAP_EXCEEDED",
-          `Cap exceeded after ${role} worker: ${postErr}`
+          `Cap exceeded after ${role} worker: ${postErr}`,
+          undefined,
+          ui,
         );
         return {
           content: [{ type: "text", text: `CAP EXCEEDED — intervention required.\n${humanMsg}\n\nWorker output was:\n${result.result.slice(0, 2000)}` }],
@@ -1029,7 +1295,12 @@ export default function (pi: ExtensionAPI) {
       const cost = result.total_cost_usd.toFixed(4);
       const accumulated = capsState.totalCostUsd.toFixed(4);
 
-      const summary = `${stepLabel} (${role}) — ${taskTag()}\n${icon} ${status} · turns=${result.num_turns} · cost=$${cost} (Σ $${accumulated})`;
+      // CCS-036.12 AC#2: Tokens + Dauer zusätzlich zu cost/turns zeigen
+      const tokStr = result.usage
+        ? ` · in=${result.usage.input_tokens} out=${result.usage.output_tokens}${result.usage.cache_read_input_tokens != null ? ` cache_r=${result.usage.cache_read_input_tokens}` : ""}`
+        : "";
+      const durStr = result.durationMs != null ? ` · ${(result.durationMs / 1000).toFixed(1)}s` : "";
+      const summary = `${stepLabel} (${role}) — ${taskTag()}\n${icon} ${status} · turns=${result.num_turns} · cost=$${cost} (Σ $${accumulated})${tokStr}${durStr}`;
       const truncated = result.result.length > 6000
         ? result.result.slice(0, 6000) + "\n\n... [truncated]"
         : result.result;
@@ -1057,7 +1328,10 @@ export default function (pi: ExtensionAPI) {
     description: "Runs deterministic quality gates (tests, lint, build, typecheck). Returns: { pass, failed: [], log }.",
     parameters: Type.Object({}),
 
-    async execute(_toolCallId, _params, _signal, onUpdate, _ctx) {
+    async execute(_toolCallId, _params, _signal, onUpdate, ctx) {
+      const ui = ctx?.hasUI ? (ctx.ui as PiUi) : undefined;
+      noteCtxUsage(ctx);
+      setPhase("STEP 4 · GATE₁", ui);
       // Pre-Check: Kill-Switch + Caps
       const precheckErr = precheck(repoRoot);
       if (precheckErr) {
@@ -1118,9 +1392,11 @@ export default function (pi: ExtensionAPI) {
       reason: Type.String({ description: "Human-readable reason why intervention is needed" }),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const { task_id, phase, reason } = params as { task_id?: string; phase: string; reason: string };
-      const message = await requestHuman(repoRoot, task_id ?? null, phase, reason);
+      const ui = ctx?.hasUI ? (ctx.ui as PiUi) : undefined;
+      noteCtxUsage(ctx);
+      const message = await requestHuman(repoRoot, task_id ?? null, phase, reason, undefined, ui);
 
       return {
         content: [{ type: "text", text: message }],
@@ -1136,9 +1412,11 @@ export default function (pi: ExtensionAPI) {
     name: "mark_done",
     label: "Mark Task Done",
     description: [
-      "Marks a task as Done in the backlog via CLI (no git push).",
+      "Marks a task as Done in the backlog, then runs STEP 7 PUBLISH:",
+      "sends the diff to the human via Slack and — ONLY on explicit approval —",
+      "pushes to a feature branch pio/<id> (never main, never force).",
       "Optionally checks AC indices and sets a final summary.",
-      "IMPORTANT: Only call this after gates PASS and review APPROVE.",
+      "IMPORTANT: Only call this after gates PASS/SKIP and review APPROVE.",
     ].join("\n"),
     parameters: Type.Object({
       id: Type.String({ description: "Task ID to mark as Done" }),
@@ -1146,7 +1424,9 @@ export default function (pi: ExtensionAPI) {
       final_summary: Type.Optional(Type.String({ description: "PR-style summary of what was implemented" })),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const ui = ctx?.hasUI ? (ctx.ui as PiUi) : undefined;
+      noteCtxUsage(ctx);
       const { id, ac_indices, final_summary } = params as {
         id: string;
         ac_indices?: number[];
@@ -1219,9 +1499,49 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
+      const doneLine = `STEP 6 · DONE — ${taskTag(id)} ✅ Done.`;
+      // Observability: Task ist Done → Phase + Fortschritts-Widget neu (done-Zähler steigt).
+      setPhase("STEP 6 · DONE", ui);
+      await refreshWidget(repoRoot, ui);
+
+      // ── STEP 7 · PUBLISH: Diff via Slack → NUR bei Freigabe Branch-Push (nie main/force) ──
+      setPhase("STEP 7 · PUBLISH", ui);
+      const diff = builderChangeSummary(repoRoot) || "(kein Diff ermittelbar)";
+      const pubHuman = await requestHuman(
+        repoRoot,
+        id,
+        "PUBLISH",
+        `Task ${id} ist Done. Diff prüfen und freigeben → Push auf Branch pio/${id} (main bleibt unberührt).`,
+        diff,
+        ui,
+      );
+      let pubLine: string;
+      let published = false;
+      let publishMsg = "";
+      if (pubHuman.startsWith("HUMAN_APPROVED:")) {
+        const pub = publishTask(repoRoot, id, currentTask.id === id ? currentTask.title : id);
+        published = pub.ok;
+        publishMsg = pub.msg;
+        pubLine = pub.ok
+          ? `STEP 7 · PUBLISH — ✅ ${pub.msg}`
+          : `STEP 7 · PUBLISH — ❌ Push fehlgeschlagen: ${pub.msg} (Task bleibt Done, lokal committet)`;
+      } else if (pubHuman.startsWith("CANCELLED_BY_HUMAN:")) {
+        pubLine = `STEP 7 · PUBLISH — abgelehnt, kein Push (Task bleibt Done, lokal committet).`;
+      } else {
+        pubLine = `STEP 7 · PUBLISH — keine klare Freigabe (${pubHuman.split(" ")[0]}) → kein Push. Bei Bedarf manuell pushen.`;
+      }
+
+      // ── STEP 8 · NEXT-Gate: nächsten Task peeken + via Slack fragen, ob weiter ──
+      setPhase("STEP 8 · NEXT", ui);
+      const nextLine = await nextTaskGate(repoRoot, ui);
+      const continueNext = nextLine.startsWith("➡️ CONTINUE_NEXT:");
+
       return {
-        content: [{ type: "text", text: `STEP 6 · DONE — ${taskTag(id)} ✅ Done (kein git push — Human-Merge nötig).` }],
-        details: { id, ac_indices, has_summary: Boolean(final_summary), done_set: true, exitCode: 0 },
+        content: [{ type: "text", text: `${doneLine}\n${pubLine}\n${nextLine}` }],
+        details: {
+          id, ac_indices, has_summary: Boolean(final_summary), done_set: true,
+          published, publish_msg: publishMsg, next: nextLine, continue_next: continueNext, exitCode: 0,
+        },
       };
     },
   });
@@ -1246,11 +1566,16 @@ PIPELINE (execute in this EXACT order — never skip, never improvise):
 
 STEP 1 — PICK
   Call: backlog_next
-  Then: backlog_set(id, "In Progress")
-  On error (no tasks): STOP. Report "No actionable tasks found."
+  Read the result text:
+    - "STEP 1 · PICK — <id> …" (fresh To-Do task) → Call: backlog_set(id, "In Progress"). Then STEP 2 with the normal planner prompt.
+    - "STEP 1 · PICK (RESUME) — <id> …" (task already In Progress) → Do NOT call backlog_set (it is already In Progress). Then STEP 2 with the RESUME planner prompt.
+  On error (text starts with "ERROR: backlog_next failed" — no To-Do AND no In-Progress task): STOP. Report "No actionable tasks found."
 
 STEP 2 — SPEC
-  Call: dispatch_worker(role="planner", prompt="<task-id>: <task-title>. Analyze this task and produce: numbered implementation plan, sharpened AC, files to change, risks.")
+  If PICK was a fresh To-Do task:
+    Call: dispatch_worker(role="planner", prompt="<task-id>: <task-title>. Analyze this task and produce: numbered implementation plan, sharpened AC, files to change, risks.")
+  If PICK was a RESUME (task already In Progress):
+    Call: dispatch_worker(role="planner", prompt="<task-id>: <task-title>. This task is ALREADY In Progress and partially done. FIRST read its current state — run \`backlog task <task-id> --plain\` to see the existing Implementation Plan, Implementation Notes and checked AC, and inspect the working-tree diff / changed files. Assess what is already implemented, then produce a plan for the REMAINING work only: numbered steps, sharpened AC, files still to change, risks. If everything is already implemented and all AC are met, state that explicitly.")
   CRITICAL — check planner output BEFORE anything else:
   If planner output contains the literal string "OPEN QUESTION":
     Extract the full OPEN QUESTION text (everything after "OPEN QUESTION:").
@@ -1305,10 +1630,13 @@ STEP 5 — REVIEW
       Call: dispatch_worker(role="builder", prompt="Reviewer rejected. Findings:\n<findings>\nFix exactly these issues.")
       Go back to run_gates, then re-dispatch reviewer.
 
-STEP 6 — DONE
+STEP 6 — DONE (+ STEP 7 PUBLISH + STEP 8 NEXT-gate, all inside the mark_done tool)
   You MUST emit the mark_done TOOL CALL now. Announcing "I proceed to STEP 6" in text is NOT enough and is a failure — the task stays unfinished until mark_done actually runs.
   Call: mark_done(id=<id>, ac_indices=[1,2,...], final_summary="<reviewer summary>")
-  Only AFTER the mark_done tool returns, report: "Task <id> complete. Awaiting human push/merge to main."
+  mark_done itself runs STEP 7 PUBLISH (diff via Slack → push to pio/<id> only on approval) AND STEP 8 NEXT-gate (peeks the next To-Do task, asks the human via Slack whether to continue). You do NOT call any git/push tool yourself.
+  Read the LAST line of the mark_done result and act on it:
+    - Contains "➡️ CONTINUE_NEXT: <next-id>" → the human approved continuing. Go BACK to STEP 1 (PICK) and run the FULL pipeline for the next task. (This is the normal loop — keep going task by task.)
+    - Contains "⏹️ PIPELINE_DONE" → STOP. Report the final result (Done + push status). Do not pick another task.
 
 RESUME PROTOCOL:
   When you see ".pi/orchestrator-resume exists" in your prompt or context:
@@ -1332,7 +1660,7 @@ RULES (non-negotiable):
 - intervention (Cap exceeded, retries exhausted) → request_human → act on return value. Never set Done without human approval.
 - You have NO code tools (no read, write, edit, bash). Never attempt to use them.
 - Never mark Done if gates FAIL or reviewer REJECTED.
-- Never git push. Push and merge are HUMAN actions only.
+- Pushing happens ONLY inside mark_done's STEP 7 PUBLISH, ONLY to feature branch pio/<id>, ONLY after explicit human Slack approval — never to main, never force. You never invoke a separate push tool; never push main or merge (that stays a human action).
 - If uncertain about anything: call request_human, not improvise.
 - Dev ≠ Review: builder and reviewer are always separate worker dispatches (different sessions — Org-Compliance).
 - intervention (Cap exceeded, retries exhausted) → request_human → act on return value. Never set Done without approval.
@@ -1442,7 +1770,7 @@ RULES (non-negotiable):
         resumeNotice,
         "",
         "Active tools (ONLY these 6 — no code tools):",
-        "  backlog_next   — PICK next To Do task",
+        "  backlog_next   — PICK next task (To Do → TODO; In Progress fallback → RESUME)",
         "  backlog_set    — set task status",
         "  dispatch_worker — spawn planner/builder/reviewer worker",
         "  run_gates      — deterministic quality gates",
@@ -1450,8 +1778,10 @@ RULES (non-negotiable):
         "  mark_done      — mark task Done in backlog (no git push)",
         "",
         "Human-Gate / Resume:",
-        "  After PAUSED: touch .pi/orchestrator-resume         → approve/continue",
-        "                touch .pi/orchestrator-resume-cancel  → cancel pipeline",
+        "  Gate-Fragen (GATE₀, Cap, PUBLISH, NEXT): direkt HIER im pi-Fenster antworten",
+        "    (Eingabebox: ja/ok · nein/abort · Freitext) ODER via Slack — was zuerst kommt.",
+        "  After PAUSED (Slack-Timeout): touch .pi/orchestrator-resume         → approve/continue",
+        "                                touch .pi/orchestrator-resume-cancel  → cancel pipeline",
         "  ntfy: https://ntfy.niclasedge.com/info (push notification sent on pause)",
         "",
         "Safety (Task .08):",

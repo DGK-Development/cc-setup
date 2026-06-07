@@ -6,7 +6,7 @@ import { estTokens, mdHeaders } from "../md.ts";
 import { join } from "@std/path";
 import { run } from "../shared.ts";
 
-async function repoRoot(cwd: string): Promise<string> {
+export async function repoRoot(cwd: string): Promise<string> {
   const out = await run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], { cwd });
   return out ? out.trim() : cwd;
 }
@@ -59,7 +59,7 @@ function countHooksInSettings(text: string): number {
   }
 }
 
-async function collectProject(cwd: string): Promise<Record<string, unknown>> {
+export async function collectProject(cwd: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
     const branch = await run(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { cwd });

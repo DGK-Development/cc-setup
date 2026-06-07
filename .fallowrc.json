@@ -1,0 +1,12 @@
+{
+  "entry": [
+    "deno-knowledge-app/test/**/*.ts",
+    "scripts/**/*.test.ts"
+  ],
+  "ignoreExports": [
+    {
+      "file": "scripts/slack-ask.ts",
+      "exports": ["askSlack", "classifyHumanAnswer"]
+    }
+  ]
+}

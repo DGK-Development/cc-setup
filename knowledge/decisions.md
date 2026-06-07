@@ -2,6 +2,28 @@
 
 Append-only Entscheidungs-Log (neueste oben). Status: `proposed` · `accepted` · `superseded`.
 
+## 009 — Orchestrator pusht nach Human-Diff-Freigabe auf Feature-Branch (verfeinert 002)
+`accepted` · 2026-06-07 · **verfeinert 002**
+
+**Context.** Bisher pushte die KI NIE (ADR 002; builder.md, System-Prompt). User-Wunsch: am
+DONE-Punkt den Diff via Slack schicken und bei Freigabe `git add/commit/push`.
+
+**Decision.** Neuer STEP 7 PUBLISH, in `mark_done` gefaltet (ein Toolcall → robust gegen
+gemma-Stall): nach Done → Diff via Slack (`requestHuman` phase=PUBLISH, attachment=Diff) →
+**NUR bei explizitem `HUMAN_APPROVED`** pusht `publishTask` auf Branch `pio/<id>`
+(`git branch -f <branch> HEAD` ohne Checkout + `git push -u origin <branch>`; **nie main, nie
+force, kein PR** — User-Wahl). Dirty-Fallback: gezielt geänderte Dateien adden (Noise
+`.pi/`/`.fallow`/`logs/`/`.gitignore` ausgeschlossen, **kein `-A`**) + commit. Der builder-Worker
+pusht weiterhin nie.
+
+**Human-Oversight gewahrt:** der Mensch SIEHT den Diff und gibt explizit frei, BEVOR gepusht
+wird; der Merge nach `main` (= produktiver Einsatz) bleibt ein manueller Mensch-Schritt. dev≠review
+unberührt (Reviewer-Worker + Mensch). Ablehnung/Freitext/Timeout → kein Push.
+
+**Consequences.** + Diff-Review im Flow, ein manueller Branch-Push weniger. − Der Orchestrator
+hat jetzt (gated) Push-Fähigkeit; Restrisiko eines gemma-Fehltriggers gemildert durch
+HUMAN_APPROVED-only + Branch-statt-main + kein force + kein Remote-Push ohne origin. Siehe CCS-036.19.
+
 ## 008 — Gate-Runner: keine konfigurierten Gates = SKIP (als PASS), nicht fail-closed
 `accepted` · 2026-06-07
 

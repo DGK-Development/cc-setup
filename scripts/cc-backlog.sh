@@ -34,6 +34,7 @@ file edits.  Read path uses `backlog task list --plain`.
 
 Subcommands:
   next
+  show       <id>
   set        <id> <status>
   plan       <id> <text>
   notes      <id> <text>
@@ -56,45 +57,74 @@ require_args() {
 # ---------------------------------------------------------------------------
 
 cmd_next() {
-    # Returns the first "To Do" task in order.
+    # Returns the first actionable task in order.
+    # Priority: "To Do" first (MODE=TODO); falls back to "In Progress" (MODE=RESUME).
+    # If CC_ORCH_MILESTONE is set, filters to that milestone only.
     # Output format (one line, machine-readable):
-    #   <ID>\t<title>
-    local plain
-    plain=$(backlog task list -s "To Do" --plain 2>/dev/null) || {
-        echo "cc-backlog: 'backlog task list' failed." >&2
-        exit 1
+    #   <ID>\t<title>\t<MODE>
+    # where MODE is either TODO or RESUME.
+
+    # Helper: fetch first leaf task for a given status; prints "<id>\t<title>" or nothing.
+    # Returns 0 if found, 1 if not found (never exits the script on "no tasks").
+    _pick_first_for_status() {
+        local status="$1"
+        local plain
+        if [[ -n "${CC_ORCH_MILESTONE:-}" ]]; then
+            plain=$(backlog task list -s "$status" -m "$CC_ORCH_MILESTONE" --plain 2>/dev/null) || return 1
+        else
+            plain=$(backlog task list -s "$status" --plain 2>/dev/null) || return 1
+        fi
+
+        local found_id found_title
+        while IFS= read -r line; do
+            local stripped
+            stripped=$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/^\[[A-Z]*\][[:space:]]*//')
+            if [[ "$stripped" =~ ^([A-Za-z][A-Za-z0-9._-]+-[0-9.]+)[[:space:]]+-[[:space:]]+(.+)$ ]]; then
+                local cand_id="${BASH_REMATCH[1]}"
+                local cand_title="${BASH_REMATCH[2]}"
+                if [[ "$cand_title" == \[Meilenstein\]* ]]; then
+                    continue
+                fi
+                found_id="$cand_id"
+                found_title="$cand_title"
+                break
+            fi
+        done <<< "$plain"
+
+        if [[ -z "${found_id:-}" ]]; then
+            return 1
+        fi
+        printf '%s\t%s' "$found_id" "$found_title"
+        return 0
     }
 
-    # Parse lines of the form:
-    #   "  [PRIO] ID - title"   or   "  ID - title"
-    # (leading whitespace, optional [PRIORITY] prefix, then ID SP-DASH-SP title)
-    # Milestone/container tasks (title starts with "[Meilenstein]") are skipped
-    # so that `next` always returns an actionable leaf task.
-    local first_id first_title
-    while IFS= read -r line; do
-        # Strip leading whitespace + optional priority tag [HIGH]/[MEDIUM]/etc.
-        local stripped
-        stripped=$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/^\[[A-Z]*\][[:space:]]*//')
-        # Match "ID - title" where ID contains only word-chars, dots, hyphens
-        if [[ "$stripped" =~ ^([A-Za-z][A-Za-z0-9._-]+-[0-9.]+)[[:space:]]+-[[:space:]]+(.+)$ ]]; then
-            local cand_id="${BASH_REMATCH[1]}"
-            local cand_title="${BASH_REMATCH[2]}"
-            # Skip milestone/container parents
-            if [[ "$cand_title" == \[Meilenstein\]* ]]; then
-                continue
-            fi
-            first_id="$cand_id"
-            first_title="$cand_title"
-            break
-        fi
-    done <<< "$plain"
-
-    if [ -z "${first_id:-}" ]; then
-        echo "cc-backlog: no 'To Do' tasks found." >&2
-        exit 1
+    # 1. Try "To Do" first.
+    local todo_result
+    if todo_result=$(_pick_first_for_status "To Do"); then
+        local id title
+        id=$(printf '%s' "$todo_result" | cut -f1)
+        title=$(printf '%s' "$todo_result" | cut -f2-)
+        printf '%s\t%s\t%s\n' "$id" "$title" "TODO"
+        return 0
     fi
 
-    printf '%s\t%s\n' "$first_id" "$first_title"
+    # 2. Fall back to "In Progress" (RESUME).
+    local inprog_result
+    if inprog_result=$(_pick_first_for_status "In Progress"); then
+        local id title
+        id=$(printf '%s' "$inprog_result" | cut -f1)
+        title=$(printf '%s' "$inprog_result" | cut -f2-)
+        printf '%s\t%s\t%s\n' "$id" "$title" "RESUME"
+        return 0
+    fi
+
+    # 3. Neither found — report and fail.
+    if [[ -n "${CC_ORCH_MILESTONE:-}" ]]; then
+        echo "cc-backlog: no 'To Do' or 'In Progress' tasks in milestone ${CC_ORCH_MILESTONE}." >&2
+    else
+        echo "cc-backlog: no 'To Do' or 'In Progress' tasks found." >&2
+    fi
+    exit 1
 }
 
 cmd_set() {
@@ -142,6 +172,20 @@ cmd_final_summary() {
     backlog task edit "$id" --final-summary "$text"
 }
 
+cmd_show() {
+    # Read-only: gibt die Task-Details (--plain) aus. Genutzt vom Orchestrator,
+    # um die Beschreibung des naechsten Tasks fuer das NEXT-Gate zu holen.
+    require_args "show" 1 "$#"
+    backlog task "$1" --plain
+}
+
+cmd_mslist() {
+    # Read-only: Task-Liste eines Milestones (--plain), nach Status gruppiert.
+    # Genutzt vom Orchestrator fuer die Fortschritts-Anzeige (Statusline + Widget).
+    require_args "mslist" 1 "$#"
+    backlog task list -m "$1" --plain
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -155,6 +199,8 @@ shift
 
 case "$SUBCOMMAND" in
     next)           cmd_next "$@" ;;
+    show)           cmd_show "$@" ;;
+    mslist)         cmd_mslist "$@" ;;
     set)            cmd_set "$@" ;;
     plan)           cmd_plan "$@" ;;
     notes)          cmd_notes "$@" ;;

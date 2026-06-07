@@ -15,8 +15,10 @@ reference/
 
 # pi-orchestrator (CCS-035): build + runtime artifacts
 node_modules/
-logs/run-gates-*.log
+logs/
 .pi/orchestrator-state.json
 .pi/orchestrator.lock
 .pi/orchestrator.kill
 .pi/agent-sessions/
+
+pi-test/

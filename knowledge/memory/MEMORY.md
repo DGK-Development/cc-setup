@@ -14,3 +14,4 @@
 - [pi-Worker canUseTool-Permissions](pi-worker-canusetool-permissions.md) — bypassPermissions wird unter Enterprise-Managed-Policy ignoriert (headless-auto-deny); echter Headless-Approver = canUseTool-Whitelist + permissionMode:'default'; Repo-Root deterministisch in Prompt
 - [pi Neu-Meilenstein-Ausarbeitung](pi-new-milestone-elaboration.md) — pio „Neuer Meilenstein": Launcher zerlegt per milestone-planner-Worker in Draft-Tasks + Human-Gate (promote/archive) + CC_ORCH_MILESTONE-Scope; Orchestrator unverändert (CCS-036.15)
 - [go-knowledge-app Port](go-knowledge-app-port.md) — Go-1:1-Port der deno-knowledge-app; Phase 1 (Quellcode) fertig+verifiziert, Tests offen; go:embed, just go / just go-build
+- [deploy --no-redactor Flag](deploy-no-redactor-flag.md) — diese Maschine bewusst redactor-frei (Flag+Sentinel); Enforcement greift erst nach Restart; Code uncommitted+ungereviewt

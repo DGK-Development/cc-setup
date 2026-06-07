@@ -24,16 +24,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NONINTERACTIVE="${CC_SETUP_NONINTERACTIVE:-0}"
 
 CHECK_ONLY=0
+NO_REDACTOR=0
 VAULT_ARG=""
 HOME_ARG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --check)  CHECK_ONLY=1 ;;
-    --vault)  shift; VAULT_ARG="${1:-}" ;;
-    --home)   shift; HOME_ARG="${1:-}" ;;
-    --*)      echo "Unbekanntes Argument: $1" >&2; exit 2 ;;
-    *)        # erstes Nicht-Flag-Argument = Ziel-Home
-              if [[ -z "$HOME_ARG" ]]; then HOME_ARG="$1"; else echo "Unerwartetes Argument: $1" >&2; exit 2; fi ;;
+    --check)        CHECK_ONLY=1 ;;
+    --no-redactor)  NO_REDACTOR=1 ;;
+    --vault)        shift; VAULT_ARG="${1:-}" ;;
+    --home)         shift; HOME_ARG="${1:-}" ;;
+    --*)            echo "Unbekanntes Argument: $1" >&2; exit 2 ;;
+    *)              # erstes Nicht-Flag-Argument = Ziel-Home
+                    if [[ -z "$HOME_ARG" ]]; then HOME_ARG="$1"; else echo "Unerwartetes Argument: $1" >&2; exit 2; fi ;;
   esac
   shift
 done
@@ -43,6 +45,15 @@ done
 # laedt (kann != ~/.claude sein) — als Default davor, damit `just deploy` ohne Args
 # den aktiven Config-Dir trifft statt blind nach ~/.claude zu schreiben.
 CLAUDE_HOME="${HOME_ARG:-${CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}}"
+
+# Sentinel-Persistenz: --no-redactor setzt Sentinel; existierender Sentinel aktiviert NO_REDACTOR
+NO_REDACTOR_SENTINEL="$CLAUDE_HOME/.cc-setup-no-redactor"
+if [[ "$NO_REDACTOR" -eq 1 ]]; then
+  mkdir -p "$CLAUDE_HOME"
+  touch "$NO_REDACTOR_SENTINEL"
+elif [[ -f "$NO_REDACTOR_SENTINEL" ]]; then
+  NO_REDACTOR=1
+fi
 SKILLS_DIR="$CLAUDE_HOME/skills"
 AGENTS_DIR="$CLAUDE_HOME/agents"
 CC_SETUP_DIR="$SKILLS_DIR/cc-setup"   # SKILL.md + scripts/ + hooks/
@@ -178,7 +189,9 @@ if ! have qmd; then
 fi
 dep_status qmd qmd
 
-if ! have redactor; then
+if [[ "$NO_REDACTOR" -eq 1 ]]; then
+  info "redactor: übersprungen (--no-redactor)"
+elif ! have redactor; then
   echo ""
   echo "  [FEHLT] redactor — Schritte nach dem cc-setup-Install:"
   echo "    1. redactor-Binary nach ~/.local/bin/ legen (chmod +x)"
@@ -274,6 +287,17 @@ if [[ -f "$CONTRACT_SRC" ]]; then
     -e 's|Plugin skills|Skills|g' \
     "$CONTRACT_SRC" > "$TMP_CONTRACT"
 
+  # --no-redactor: Redactor-Subsection aus CONTRACT-Kopie entfernen
+  if [[ "$NO_REDACTOR" -eq 1 ]]; then
+    TMP_CONTRACT2=$(mktemp)
+    awk '
+      /^## Redactor \(Strict Mode\)/ { skip=1; next }
+      skip && /^## /                 { skip=0 }
+      skip                           { next }
+      { print }
+    ' "$TMP_CONTRACT" > "$TMP_CONTRACT2" && mv "$TMP_CONTRACT2" "$TMP_CONTRACT"
+  fi
+
   TMP_BLOCK=$(mktemp)
   { echo "$BEGIN_MARK"; cat "$TMP_CONTRACT"; echo "$END_MARK"; } > "$TMP_BLOCK"
 
@@ -289,9 +313,33 @@ if [[ -f "$CONTRACT_SRC" ]]; then
       skip { next }
       { print }
     ' "$GLOBAL_CLAUDE" > "$GLOBAL_CLAUDE.new" && mv "$GLOBAL_CLAUDE.new" "$GLOBAL_CLAUDE"
+    # --no-redactor: handgeschriebene Redactor-Sektion ebenfalls entfernen (+ Backup)
+    if [[ "$NO_REDACTOR" -eq 1 ]] && grep -q "^## Redactor (Strict Mode)" "$GLOBAL_CLAUDE"; then
+      cp "$GLOBAL_CLAUDE" "${GLOBAL_CLAUDE}.bak.$(date +%s)"
+      TMP_STRIP=$(mktemp)
+      awk '
+        /^## Redactor \(Strict Mode\)/ { skip=1; next }
+        skip && /^#{1,2} [^#]|^<!-- BEGIN cc-setup/ { skip=0 }
+        skip { next }
+        { print }
+      ' "$GLOBAL_CLAUDE" > "$TMP_STRIP" && mv "$TMP_STRIP" "$GLOBAL_CLAUDE"
+      info "CLAUDE.md: handgeschriebene Redactor-Sektion entfernt (Backup angelegt)"
+    fi
     { echo ""; cat "$TMP_BLOCK"; } >> "$GLOBAL_CLAUDE"
     info "CLAUDE.md: managed block ersetzt → $GLOBAL_CLAUDE"
   elif [[ -f "$GLOBAL_CLAUDE" ]]; then
+    # --no-redactor: handgeschriebene Redactor-Sektion ebenfalls entfernen (+ Backup)
+    if [[ "$NO_REDACTOR" -eq 1 ]] && grep -q "^## Redactor (Strict Mode)" "$GLOBAL_CLAUDE"; then
+      cp "$GLOBAL_CLAUDE" "${GLOBAL_CLAUDE}.bak.$(date +%s)"
+      TMP_STRIP=$(mktemp)
+      awk '
+        /^## Redactor \(Strict Mode\)/ { skip=1; next }
+        skip && /^#{1,2} [^#]|^<!-- BEGIN cc-setup/ { skip=0 }
+        skip { next }
+        { print }
+      ' "$GLOBAL_CLAUDE" > "$TMP_STRIP" && mv "$TMP_STRIP" "$GLOBAL_CLAUDE"
+      info "CLAUDE.md: handgeschriebene Redactor-Sektion entfernt (Backup angelegt)"
+    fi
     { echo ""; cat "$TMP_BLOCK"; } >> "$GLOBAL_CLAUDE"
     info "CLAUDE.md: managed block angehängt → $GLOBAL_CLAUDE"
   else
@@ -306,7 +354,7 @@ INJECT_CMD="bash \"$CC_SETUP_DIR/hooks/inject-project-context.sh\""
 USERPROMPT_CMD="bash \"$CC_SETUP_DIR/hooks/userprompt-context-match.sh\""
 STOP_CMD="bash \"$CC_SETUP_DIR/hooks/stop-workflow.sh\""
 
-uv run python3 - "$SETTINGS_JSON" "$INJECT_CMD" "$USERPROMPT_CMD" "$VAULT" "$STOP_CMD" <<'PYEOF'
+uv run python3 - "$SETTINGS_JSON" "$INJECT_CMD" "$USERPROMPT_CMD" "$VAULT" "$STOP_CMD" "$NO_REDACTOR" <<'PYEOF'
 import json, sys
 from pathlib import Path
 
@@ -315,6 +363,7 @@ inject_cmd     = sys.argv[2]
 userprompt_cmd = sys.argv[3]
 vault          = sys.argv[4]
 stop_cmd       = sys.argv[5]
+no_redactor    = sys.argv[6] == "1"
 
 settings = {}
 if settings_path.exists():
@@ -328,6 +377,18 @@ markers = ("inject-project-context", "userprompt-context-match", "stop-workflow"
 
 def remove_cc_hooks(entries):
     return [e for e in entries if not any(m in json.dumps(e) for m in markers)]
+
+def remove_redactor_hooks(entries):
+    """Filter out entries whose hooks contain 'redactor hook' in their command."""
+    result = []
+    for entry in entries:
+        filtered_hooks = [
+            h for h in entry.get("hooks", [])
+            if "redactor hook" not in h.get("command", "")
+        ]
+        if filtered_hooks:
+            result.append({**entry, "hooks": filtered_hooks})
+    return result
 
 cc_hooks = {
     "SessionStart": [
@@ -348,6 +409,19 @@ for ev in sorted(set(existing) | set(cc_hooks)):
     new_ones = cc_hooks.get(ev, [])
     merged[ev] = new_ones + cleaned
 
+# --no-redactor: remove all entries with 'redactor hook' in command
+redactor_removed = 0
+if no_redactor:
+    merged_clean = {}
+    for ev, entries in merged.items():
+        before = sum(len(e.get("hooks", [])) for e in entries)
+        filtered = remove_redactor_hooks(entries)
+        after = sum(len(e.get("hooks", [])) for e in filtered)
+        redactor_removed += before - after
+        if filtered:
+            merged_clean[ev] = filtered
+    merged = merged_clean
+
 settings["hooks"] = merged
 
 # Vault als env-Variable eintragen (für Hooks die außerhalb der Shell starten)
@@ -359,6 +433,8 @@ settings["env"] = env
 settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 print(f"  settings.json: {len(merged)} Hook-Events, env.OBSIDIAN_VAULT_PATH gesetzt")
+if no_redactor:
+    print(f"  settings.json: {redactor_removed} redactor-Hooks entfernt")
 PYEOF
 
 # 5c — Shell-Profil: OBSIDIAN_VAULT_PATH
@@ -405,7 +481,10 @@ echo "  1.  source $PROFILE   (oder neue Shell öffnen)"
 echo "  2.  Claude Code starten — Skills, Agents und Hooks sind aktiv"
 echo "  3.  Pro Repo einmal:  /context-init"
 echo ""
-if ! have redactor; then
+if [[ "$NO_REDACTOR" -eq 1 ]]; then
+  echo "  Redactor: entfernt (settings.json + CLAUDE.md), Sentinel: $NO_REDACTOR_SENTINEL"
+  echo ""
+elif ! have redactor; then
   echo "  HINWEIS redactor fehlt:"
   echo "    cargo install --path vendor/hook-redactor"
   echo "    redactor install-plugin --global"

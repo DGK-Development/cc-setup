@@ -12,7 +12,7 @@ const RATE_OUTPUT = 15.0;
 const RATE_CACHE_WRITE = 3.75;
 const RATE_CACHE_READ = 0.30;
 
-function estCost(
+export function estCost(
   inp: number,
   out: number,
   cacheRead: number,
@@ -23,7 +23,7 @@ function estCost(
 }
 
 /** Claude Code encodes a project's cwd into its session dir name (non-alnum → '-'). */
-function encodeCwd(cwd: string): string {
+export function encodeCwd(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, "-");
 }
 
@@ -34,7 +34,7 @@ function sessionsDir(cwd: string): string {
 }
 
 /** Estimated cost (≈ USD) from one session JSONL: sum usage tokens over its lines. */
-async function fileCost(path: string): Promise<number> {
+export async function fileCost(path: string): Promise<number> {
   let text: string;
   try {
     text = await Deno.readTextFile(path);
@@ -64,7 +64,7 @@ async function fileCost(path: string): Promise<number> {
  * Native 7-day cost (≈ USD): sum the cost of session JSONLs whose file mtime is
  * within the last 7 days. No subprocess. `now` is injectable for tests.
  */
-async function sevenDayCostNative(cwd: string, now: number = Date.now()): Promise<number> {
+export async function sevenDayCostNative(cwd: string, now: number = Date.now()): Promise<number> {
   const dir = sessionsDir(cwd);
   const cutoff = now - 7 * 24 * 3600 * 1000;
   let cost = 0;

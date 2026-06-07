@@ -44,7 +44,7 @@ export interface SidebarProject extends ProjectRef {
  * working_dir) are deliberately ignored — only a count for repos the sidebar
  * already lists is ever surfaced.
  */
-function parseTnProjects(jsonText: string | null): Map<string, number> {
+export function parseTnProjects(jsonText: string | null): Map<string, number> {
   const out = new Map<string, number>();
   const parsed = parseJson<unknown>(jsonText);
   const arr: Array<Record<string, unknown>> = Array.isArray(parsed)
@@ -79,14 +79,14 @@ async function tnTaskCounts(): Promise<Map<string, number>> {
 }
 
 /** Scan roots: CC_KNOWLEDGE_ROOTS (comma-separated) overrides; default DG + private. */
-function projectRoots(): string[] {
+export function projectRoots(): string[] {
   const env = Deno.env.get("CC_KNOWLEDGE_ROOTS");
   if (env) return env.split(",").map((s) => s.trim()).filter(Boolean);
   return [`${HOME}/GITHUB_DG`, `${HOME}/GITHUB`];
 }
 
 /** A project = a directory containing backlog/. Dedupe by name; active repo always included. */
-async function discoverProjectsIn(
+export async function discoverProjectsIn(
   roots: string[],
   activeRepo: string,
 ): Promise<ProjectRef[]> {
@@ -116,7 +116,7 @@ async function discoverProjectsIn(
  * Tasks in completed/ never increase the open count; including them ensures the
  * number matches the Boards-Header count from collectBacklog (unified source).
  */
-async function countOpenTasks(repoPath: string): Promise<number> {
+export async function countOpenTasks(repoPath: string): Promise<number> {
   const tasksDir = join(repoPath, "backlog", "tasks");
   let open = 0;
   const seenIds = new Set<string>();
@@ -149,7 +149,7 @@ async function countOpenTasks(repoPath: string): Promise<number> {
 }
 
 /** Milestones (name + done/total) from a project's backlog/tasks (dev data only). */
-async function projectMilestones(repoPath: string): Promise<Milestone[]> {
+export async function projectMilestones(repoPath: string): Promise<Milestone[]> {
   const tasksDir = join(repoPath, "backlog", "tasks");
   const agg = new Map<string, { done: number; total: number }>();
   try {
@@ -183,7 +183,7 @@ export interface OpenTask {
  * All non-done backlog tasks for a project (id/title/status/milestone/project/file).
  * Used for the cross-project Kanban board in CCS-026.
  */
-async function projectOpenTasks(repoPath: string, projectName: string): Promise<OpenTask[]> {
+export async function projectOpenTasks(repoPath: string, projectName: string): Promise<OpenTask[]> {
   const tasksDir = join(repoPath, "backlog", "tasks");
   const out: OpenTask[] = [];
   try {
@@ -208,7 +208,7 @@ async function projectOpenTasks(repoPath: string, projectName: string): Promise<
 }
 
 /** Backlog tasks WITHOUT a milestone and NOT done, for the project-wide overview. */
-async function projectLooseTasks(repoPath: string): Promise<LooseTask[]> {
+export async function projectLooseTasks(repoPath: string): Promise<LooseTask[]> {
   const tasksDir = join(repoPath, "backlog", "tasks");
   const out: LooseTask[] = [];
   try {
@@ -232,7 +232,7 @@ async function projectLooseTasks(repoPath: string): Promise<LooseTask[]> {
 }
 
 /** Full sidebar aggregate: every project with open tasks + 7d cost + milestones + loose tasks. */
-async function collectSidebar(activeRepo: string): Promise<SidebarProject[]> {
+export async function collectSidebar(activeRepo: string): Promise<SidebarProject[]> {
   const projects = await discoverProjectsIn(projectRoots(), activeRepo);
   const tnCounts = await tnTaskCounts(); // one call; counts keyed by working_dir
   const out: SidebarProject[] = [];

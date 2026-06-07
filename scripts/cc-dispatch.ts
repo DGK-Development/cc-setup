@@ -36,6 +36,13 @@ import { join } from "node:path";
 
 // ── Typen ────────────────────────────────────────────────────────────────────
 
+export interface WorkerUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
 export interface WorkerResult {
   result: string;
   is_error: boolean;
@@ -44,6 +51,8 @@ export interface WorkerResult {
   exitCode: number;
   stderr: string;
   error?: string;
+  usage?: WorkerUsage;
+  durationMs?: number;
 }
 
 export interface DispatchOpts {
@@ -255,6 +264,61 @@ export function buildQueryOpts(
 // ── Dispatch via SDK query() ──────────────────────────────────────────────────
 
 /**
+ * Baut ein WorkerResult aus dem SDK-ResultMessage und der gemessenen Dauer.
+ * Pure Funktion — testbar ohne SDK-Lauf.
+ */
+export function mapResult(
+  resultMsg: { subtype?: string; result?: string; is_error?: boolean; errors?: string[]; total_cost_usd?: number; num_turns?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } } | null,
+  durationMs: number,
+  stderrBuf: string,
+): WorkerResult {
+  if (!resultMsg) {
+    return {
+      result: "",
+      is_error: true,
+      total_cost_usd: 0,
+      num_turns: 0,
+      exitCode: 1,
+      stderr: stderrBuf,
+      error: "SDK query ended without result message",
+      durationMs,
+    };
+  }
+
+  const isSuccess = resultMsg.subtype === "success";
+  const resultText = isSuccess ? (resultMsg.result ?? "") : "";
+  const isError = resultMsg.is_error ?? !isSuccess;
+
+  const errors = resultMsg.errors;
+  const errorMsg = isError
+    ? (errors?.length ? errors.join("; ") : (resultText || stderrBuf.slice(0, 500)) || undefined)
+    : undefined;
+
+  // SDK-Usage aus dem ResultMessage extrahieren (CCS-036.12 AC#1)
+  const rawUsage = resultMsg.usage;
+  const usage: WorkerUsage | undefined = rawUsage
+    ? {
+        input_tokens: rawUsage.input_tokens ?? 0,
+        output_tokens: rawUsage.output_tokens ?? 0,
+        ...(rawUsage.cache_read_input_tokens != null && { cache_read_input_tokens: rawUsage.cache_read_input_tokens }),
+        ...(rawUsage.cache_creation_input_tokens != null && { cache_creation_input_tokens: rawUsage.cache_creation_input_tokens }),
+      }
+    : undefined;
+
+  return {
+    result: resultText,
+    is_error: isError,
+    total_cost_usd: resultMsg.total_cost_usd ?? 0,
+    num_turns: resultMsg.num_turns ?? 0,
+    exitCode: isError ? 1 : 0,
+    stderr: stderrBuf,
+    error: errorMsg,
+    usage,
+    durationMs,
+  };
+}
+
+/**
  * Hauptfunktion: startet Claude in-process via @anthropic-ai/claude-agent-sdk,
  * wartet auf SDKResultMessage, gibt WorkerResult zurück.
  *
@@ -302,6 +366,7 @@ export async function dispatchWorker(
   let resultMsg: SDKMessage & { type: "result" } | null = null;
   let stderrBuf = "";
   let queryError: string | undefined;
+  const startTs = Date.now(); // Wall-Clock für durationMs (CCS-036.12 AC#1)
 
   try {
     const queryResult = sdkQuery({
@@ -370,12 +435,15 @@ export async function dispatchWorker(
         exitCode: 1,
         stderr: stderrBuf,
         error: `timeout after ${opts.timeoutSecs ?? 120}s — worker aborted via AbortController`,
+        durationMs: Date.now() - startTs,
       };
     }
     queryError = `SDK error: ${msg}`;
   } finally {
     clearTimeout(timer);
   }
+
+  const durationMs = Date.now() - startTs;
 
   // AbortController ausgelöst aber kein Catch → Timeout ohne Exception
   if (abortController.signal.aborted && !resultMsg && !queryError) {
@@ -387,6 +455,7 @@ export async function dispatchWorker(
       exitCode: 1,
       stderr: stderrBuf,
       error: `timeout after ${opts.timeoutSecs ?? 120}s — worker aborted via AbortController`,
+      durationMs,
     };
   }
 
@@ -399,41 +468,12 @@ export async function dispatchWorker(
       exitCode: 1,
       stderr: stderrBuf,
       error: queryError,
+      durationMs,
     };
   }
 
-  if (!resultMsg) {
-    return {
-      result: "",
-      is_error: true,
-      total_cost_usd: 0,
-      num_turns: 0,
-      exitCode: 1,
-      stderr: stderrBuf,
-      error: "SDK query ended without result message",
-    };
-  }
-
-  // SDKResultSuccess hat .result (string), SDKResultError nicht
-  const isSuccess = resultMsg.subtype === "success";
-  const resultText = isSuccess ? (resultMsg as { result?: string }).result ?? "" : "";
-  const isError = resultMsg.is_error ?? !isSuccess;
-
-  // Fehlermeldung: SDK-errors-Array > result-Text (wenn is_error) > stderr-Fallback
-  const errors = (resultMsg as { errors?: string[] }).errors;
-  const errorMsg = isError
-    ? (errors?.length ? errors.join("; ") : (resultText || stderrBuf.slice(0, 500)) || undefined)
-    : undefined;
-
-  return {
-    result: resultText,
-    is_error: isError,
-    total_cost_usd: resultMsg.total_cost_usd ?? 0,
-    num_turns: resultMsg.num_turns ?? 0,
-    exitCode: isError ? 1 : 0,
-    stderr: stderrBuf,
-    error: errorMsg,
-  };
+  // mapResult verarbeitet resultMsg (oder null) → WorkerResult mit usage + durationMs (CCS-036.12 AC#1)
+  return mapResult(resultMsg, durationMs, stderrBuf);
 }
 
 // ── CLI-Entry ─────────────────────────────────────────────────────────────────

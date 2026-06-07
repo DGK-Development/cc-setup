@@ -1,7 +1,0 @@
-=== run-gates.sh start 2026-06-06T21:22:42+02:00 ===
-Repo: /Users/niclasedge/GITHUB_DG/cc-setup
-
---- Gate: fail-gate | cmd: exit 1 ---
-[fail-gate] FAIL
-
-=== run-gates.sh end 2026-06-06T21:22:42+02:00 ===

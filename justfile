@@ -15,6 +15,15 @@ deploy target="" vault="":
 # Alias: just setup → just deploy (Rückwärtskompatibilität)
 setup vault="": (deploy "" vault)
 
+# Deploy OHNE redactor-Wiring (entfernt redactor aus settings.json + CLAUDE.md, setzt Sentinel)
+deploy-no-redactor target="" vault="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=(--no-redactor)
+    [[ -n "{{target}}" ]] && args+=(--home "{{target}}")
+    [[ -n "{{vault}}" ]] && args+=(--vault "{{vault}}")
+    bash scripts/deploy.sh "${args[@]}"
+
 # Nur Dep-Status prüfen (keine Änderungen)
 check:
     bash scripts/deploy.sh --check
@@ -77,11 +86,21 @@ go-build:
 deno-test:
     cd deno-knowledge-app && deno task test
 
-# Alle Test-Suites: Python-Helper (sprint-bridge + session-analyse + waste + context-resolve)
+# Alle Test-Suites: Python-Helper (sprint-bridge + session-analyse + waste + context-resolve + pi-launch)
 # plus die Deno-App (deno-knowledge-app). knowledge.py-Dashboard ist nach Deno migriert (CCS-018).
 test:
-    cd scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py test_session_analyze.py test_session_waste.py test_context_resolve.py -v
+    cd scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py test_session_analyze.py test_session_waste.py test_context_resolve.py test_pi_launch.py test_run_gates_detect.py -v
+    cd scripts && bun test slack-ask.test.ts cc-dispatch.test.ts caps-logic.test.ts gate0-spec.test.ts system-prompt.test.ts
     cd deno-knowledge-app && deno task test
+
+# Interaktiver pi-Launcher: ermittelt offene Meilensteine, fragt welcher fortgesetzt
+# oder ob ein neuer gestartet wird, baut daraus den pi-Prompt und startet pi mit
+# beiden Extensions (damage-control + cc-orchestrator).
+#
+# Voraussetzungen: pi, uv, jq (oder python3) auf $PATH; Ollama + ANTHROPIC_API_KEY gesetzt.
+# Fuer direkten Start ohne Frage: just orchestrate [task-id]
+pi:
+    bash scripts/pi-launch.sh
 
 # Startet den pi-Orchestrator-Dispatcher (lokales Ollama-Modell) mit beiden Extensions.
 # Der Dispatcher sequenziert die Pipeline PICK→SPEC→Gate→DEV→GATE→REVIEW→DONE.
@@ -113,4 +132,4 @@ orchestrate task-id="":
         -e .pi/extensions/damage-control.ts \
         -e .pi/extensions/cc-orchestrator.ts \
         --no-builtin-tools \
-        -p "$prompt"
+        "$prompt"

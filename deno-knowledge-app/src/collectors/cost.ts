@@ -106,7 +106,7 @@ function rateLimitFromSnapshot(
   };
 }
 
-async function collectCost(dir?: string): Promise<Record<string, unknown>> {
+export async function collectCost(dir?: string): Promise<Record<string, unknown>> {
   try {
     const udir = dir ?? usageDir();
     try {

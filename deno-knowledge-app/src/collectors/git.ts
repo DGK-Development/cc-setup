@@ -48,7 +48,7 @@ function gitRecommend(
   return "Clean & in sync — nichts zu tun.";
 }
 
-async function collectGit(cwd: string): Promise<Record<string, unknown>> {
+export async function collectGit(cwd: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
     const branchOut = await git(repo, "rev-parse", "--abbrev-ref", "HEAD");
@@ -152,7 +152,7 @@ async function gitAction(cwd: string, ...args: string[]): Promise<Record<string,
   }
 }
 
-async function gitDiff(cwd: string, relpath: string): Promise<Record<string, unknown>> {
+export async function gitDiff(cwd: string, relpath: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
     let args: string[];
@@ -184,7 +184,7 @@ async function gitDiff(cwd: string, relpath: string): Promise<Record<string, unk
   }
 }
 
-async function gitCommit(cwd: string, message: string): Promise<Record<string, unknown>> {
+export async function gitCommit(cwd: string, message: string): Promise<Record<string, unknown>> {
   const msg = message.trim();
   if (!msg) return { ok: false, cmd: "git commit", output: "leere Commit-Message" };
   const add = await gitAction(cwd, "add", "-A");
@@ -192,7 +192,7 @@ async function gitCommit(cwd: string, message: string): Promise<Record<string, u
   return gitAction(cwd, "commit", "-m", msg);
 }
 
-function gitDelete(cwd: string, branch: string): Promise<Record<string, unknown>> {
+export function gitDelete(cwd: string, branch: string): Promise<Record<string, unknown>> {
   const b = branch.trim();
   if (!b) {
     return Promise.resolve({ ok: false, cmd: "git branch -d", output: "kein Branch angegeben" });
@@ -200,7 +200,7 @@ function gitDelete(cwd: string, branch: string): Promise<Record<string, unknown>
   return gitAction(cwd, "branch", "-d", b);
 }
 
-async function gitMerge(cwd: string, branch: string): Promise<Record<string, unknown>> {
+export async function gitMerge(cwd: string, branch: string): Promise<Record<string, unknown>> {
   const b = branch.trim();
   if (!b) return { ok: false, cmd: "git merge", output: "kein Branch angegeben" };
   const sw = await gitAction(cwd, "switch", "main");
@@ -208,7 +208,7 @@ async function gitMerge(cwd: string, branch: string): Promise<Record<string, unk
   return gitAction(cwd, "merge", "--no-ff", b);
 }
 
-function gitPush(cwd: string, branch: string): Promise<Record<string, unknown>> {
+export function gitPush(cwd: string, branch: string): Promise<Record<string, unknown>> {
   const b = branch.trim() || "HEAD";
   return gitAction(cwd, "push", "origin", b);
 }
