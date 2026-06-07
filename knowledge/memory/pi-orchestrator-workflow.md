@@ -1,6 +1,6 @@
 ---
 name: pi-orchestrator-workflow
-description: "pi-Dispatcher (lokal) → claude -p Worker; Spec geschrieben, wartet auf Spec-Gate-Freigabe"
+description: "pi-Dispatcher (lokal) → Agent-SDK-Worker; 11/11 Subtasks implementiert (CCS-035), autonomer E2E = manueller Lauf"
 metadata: 
   node_type: memory
   type: project
@@ -16,3 +16,11 @@ Spec liegt in `specs/spec-pi-orchestrator-workflow.md` (11 atomare Backlog-Tasks
 **Schlüssel-Insight (nicht offensichtlich):** cc-setup-Hooks für Headless-Worker per Env `CC_ORCHESTRATED=1` **gaten, NICHT pauschal deaktivieren** — sonst fällt der `redactor`-PreToolUse-Hook mit weg = Org-Egress-Verstoß. Nur `inject-project-context.sh` (Backlog-Dump) + `stop-workflow.sh` (`decision:block`/PKM-Sync) früh überspringen; redactor bleibt aktiv. Verwandt: [[cc-setup-auto-sync-push-hazard]], [[deno-knowledge-cache-python-runaway]] (Runaway-Caps).
 
 pi-Bausteine verifiziert in `reference/pi-vs-claude-code/` (agent-team.ts Spawn-Mechanik, damage-control, The Chronicle als spätere Ausbaustufe) + `reference/pi-agent-observability/`. pi-Engine via opensrc unter `~/.opensrc/repos/github.com/earendil-works/pi/main`.
+
+**Implementiert 2026-06-07 (alle 11 Subtasks CCS-035.01–.11 Done, wellenweise via dev/review-Subagents, just test 150/0):** Dateien: `.pi/agents/{planner,builder,reviewer}.md`, `.pi/extensions/cc-orchestrator.ts` (6 grobkörnige Tools + setActiveTools-Lock + CAPS + single-flight + Kill-Switch), `.pi/extensions/damage-control.ts` + `.pi/damage-control-rules.yaml`, `scripts/cc-dispatch.ts`, `scripts/cc-backlog.sh`, `scripts/run-gates.sh`; `just orchestrate`; ADR in `knowledge/decisions.md`; `knowledge/orchestrator-workflow.md` + `orchestrator-dry-run-report.md`.
+
+**Architektur-Pivot (wichtig, weicht von der Spec ab):** Worker laufen NICHT mehr via `claude -p` CLI, sondern via **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk` `query()` in cc-dispatch.ts). Grund: headless `claude -p` wird vom redactor-PreToolUse-Hook (interaktiver Verification-Gate) + CLI-Permission-System blockiert — kein Permission-Mode (auto/dontAsk/bypassPermissions) löst das; nur `--dangerously-skip-permissions`. Das SDK gibt programmatische Kontrolle: `allowedTools`/`permissionMode`/`canUseTool`/`systemPrompt`/`model` + **`settingSources: []`** → Worker lädt `~/.claude`-Settings/Hooks NICHT.
+
+**redactor-Entscheidung geändert (User, 2026-06-07):** redactor für den **pi-Worker** AUS (`settingSources:[]`) — nur Private-Projekte ohne sensible Daten; **Hauptsession behält redactor strict**. Das ersetzt die ursprüngliche „redactor-MUSS-bleiben"-Vorgabe der Spec (User-autorisiert, scoped). Done ist code-erzwungen (`mark_done` → `run_gates pass:true`, nie bei rotem Gate).
+
+**Harness-Limit (nicht offensichtlich):** Der voll-autonome pi-Lauf (gemma4:12b-mlx treibt PICK..DONE) kann NICHT agent-getrieben getestet werden — der Claude-Code-Harness-Classifier blockt das Spawnen von bypass/headless-Workern aus einem Agent (oder Subagent) heraus. **Echter autonomer E2E = manueller User-Schritt** (`just orchestrate`, Spec-Gate-Freigabe via `touch .pi/orchestrator-resume`). Meilenstein-Parent CCS-035 bleibt offen bis zu diesem manuellen Lauf. Sicherheitsvorfall in dieser Session: ein dev-Subagent hardcodierte den ntfy-Bearer-Token — remediert (Reuse von `~/.claude/skills/ntfy/scripts/send-ntfy.py`); Token sollte rotiert werden (liegt auch im gepushten claude-home-Repo).

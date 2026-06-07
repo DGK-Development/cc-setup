@@ -9,5 +9,5 @@
 - [Deno-Knowledge tn Org-Block](deno-knowledge-tn-org-block.md) — tn-Daten = kunden-/personenbezogen; NICHT cross-project aggregieren, tn projects meiden (Org-Regel)
 - [Skill-Deploy Plugin-Root-Platzhalter](skill-deploy-plugin-root-placeholder.md) — Skills nutzen ${CLAUDE_PLUGIN_ROOT}-Platzhalter (deploy-zeit-sed), nie hardcoded $HOME/.claude; deploy.sh defaultet auf $CLAUDE_CONFIG_DIR
 - [CC Kontext: Skill/Agent nur Metadaten](cc-context-skill-agent-metadata-only.md) — /context lädt je Skill/Agent nur name+description (progressive disclosure), nicht ganze Datei; Footprint-Tools entsprechend zählen
-- [pi-Orchestrator-Workflow](pi-orchestrator-workflow.md) — lokaler pi-Dispatcher → claude -p Worker; Spec geschrieben (specs/spec-pi-orchestrator-workflow.md), wartet auf Spec-Gate; Hooks env-gaten statt deaktivieren (redactor muss bleiben)
+- [pi-Orchestrator-Workflow](pi-orchestrator-workflow.md) — CCS-035 implementiert (11/11 Done); Worker via Claude Agent SDK (nicht claude -p), redactor im Worker aus (settingSources:[], User-ok), autonomer E2E = manueller just-orchestrate-Lauf (Harness-Limit)
 - [go-knowledge-app Port](go-knowledge-app-port.md) — Go-1:1-Port der deno-knowledge-app; Phase 1 (Quellcode) fertig+verifiziert, Tests offen; go:embed, just go / just go-build

@@ -20,3 +20,11 @@
 {"command":"-","count":2,"mode":"json","rule":"json_leaves","sample":"leaves=2 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/settings.json","ts":"2026-06-06T21:08:27+02:00"}
 {"command":"-","count":2,"mode":"json","rule":"json_leaves","sample":"leaves=2 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/reference/pi-vs-claude-code/.pi/settings.json","ts":"2026-06-06T21:25:29+02:00"}
 {"command":"-","count":5,"mode":"json","rule":"json_leaves","sample":"leaves=5 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/reference/pi-vs-claude-code/package.json","ts":"2026-06-06T21:25:29+02:00"}
+{"command":"-","count":5,"mode":"json","rule":"json_leaves","sample":"leaves=5 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/.pi/orchestrator-state.json","ts":"2026-06-06T21:37:28+02:00"}
+{"command":"-","count":5,"mode":"json","rule":"json_leaves","sample":"leaves=5 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/.pi/orchestrator-state.json","ts":"2026-06-06T22:26:24+02:00"}
+{"command":"-","count":6,"mode":"json","rule":"json_leaves","sample":"leaves=6 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/.pi/orchestrator-state.json","ts":"2026-06-06T22:31:57+02:00"}
+{"command":"bash -c  cd /Users/niclasedge/GITHUB_DG/cc-setup echo \"=== Treffer im File (Zeilennummern) ===\" rg -...","count":1,"mode":"wrap","rule":"auth_header","sample":"Authorization: Bearer ${NTFY_TOKEN}`,","source":"wrap:bash","ts":"2026-06-06T22:33:59+02:00"}
+{"command":"-","count":5,"mode":"json","rule":"json_leaves","sample":"leaves=5 list_truncated=0","source":"/Users/niclasedge/GITHUB_DG/cc-setup/.pi/orchestrator-state.json","ts":"2026-06-06T22:43:02+02:00"}
+{"command":"git -C /Users/niclasedge/.claude remote -v","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:git","ts":"2026-06-06T22:43:53+02:00"}
+{"command":"git -C /Users/niclasedge/.claude remote -v","count":1,"mode":"wrap","rule":"email","sample":"git@github.com","source":"wrap:git","ts":"2026-06-06T22:43:53+02:00"}
+{"command":"-","count":6,"mode":"json","rule":"json_leaves","sample":"leaves=6 list_truncated=1","source":"/Users/niclasedge/GITHUB_DG/cc-setup/.pi/orchestrator-state.json","ts":"2026-06-06T23:03:41+02:00"}

@@ -1,0 +1,221 @@
+# damage-control-rules.yaml — cc-setup Orchestrator Safety Rules
+#
+# Portiert aus reference/pi-vs-claude-code/.pi/damage-control-rules.yaml
+# + org-spezifische Ergaenzungen (zeroAccessPaths: .env / *.pem / ~/.ssh)
+#
+# Geladen von .pi/extensions/damage-control.ts beim session_start.
+# Greift fuer pi-eigene Bash-Calls (Gates etc.) — Defense-in-Depth,
+# da cc-orchestrator.ts ohnehin setActiveTools([...]) ohne bash nutzt.
+#
+# Org-Compliance-Mapping:
+#   - rm -rf / git reset --hard   → block:true  (destruktive Operationen)
+#   - .env / *.pem / ~/.ssh/      → zeroAccessPaths (keine internen/kunden-/
+#                                   personenbezogenen Daten)
+#   - git push --force             → block:true  (kein Auto-Push, CCS-008)
+
+bashToolPatterns:
+  # ── Destruktive Datei-Operationen ──────────────────────────────────────────
+  - pattern: '\brm\s+(-[^\s]*)*-[rRf]'
+    reason: rm with recursive or force flags
+  - pattern: '\brm\s+-[rRf]'
+    reason: rm with recursive or force flags
+  - pattern: '\brm\s+--recursive'
+    reason: rm with --recursive flag
+  - pattern: '\brm\s+--force'
+    reason: rm with --force flag
+  - pattern: '\bsudo\s+rm\b'
+    reason: sudo rm
+  - pattern: '\brmdir\s+--ignore-fail-on-non-empty'
+    reason: rmdir ignore-fail
+
+  # ── Berechtigungs-Eskalation ────────────────────────────────────────────────
+  - pattern: '\bchmod\s+(-[^\s]+\s+)*777\b'
+    reason: chmod 777 (world writable)
+  - pattern: '\bchmod\s+-[Rr].*777'
+    reason: recursive chmod 777
+  - pattern: '\bchown\s+-[Rr].*\broot\b'
+    reason: recursive chown to root
+
+  # ── Destruktive Git-Operationen ─────────────────────────────────────────────
+  - pattern: '\bgit\s+reset\s+--hard\b'
+    reason: git reset --hard (use --soft or stash)
+  - pattern: '\bgit\s+clean\s+(-[^\s]*)*-[fd]'
+    reason: git clean with force/directory flags
+  - pattern: '\bgit\s+push\s+.*--force(?!-with-lease)'
+    reason: git push --force (use --force-with-lease); Org-Regel kein Auto-Push
+  - pattern: '\bgit\s+push\s+(-[^\s]*)*-f\b'
+    reason: git push -f (use --force-with-lease); Org-Regel kein Auto-Push
+  - pattern: '\bgit\s+stash\s+clear\b'
+    reason: git stash clear (deletes ALL stashes)
+  - pattern: '\bgit\s+reflog\s+expire\b'
+    reason: git reflog expire (destroys recovery mechanism)
+  - pattern: '\bgit\s+gc\s+.*--prune=now'
+    reason: git gc --prune=now (can lose dangling commits)
+  - pattern: '\bgit\s+filter-branch\b'
+    reason: git filter-branch (rewrites entire history)
+  - pattern: '\bgit\s+push\b'
+    reason: git push blocked — kein Auto-Push (CCS-008 / Org-Regel); nur Human-Merge
+  - pattern: '\bgit\s+checkout\s+--\s*\.'
+    reason: Discards all uncommitted changes
+    ask: true
+  - pattern: '\bgit\s+restore\s+\.'
+    reason: Discards all uncommitted changes
+    ask: true
+  - pattern: '\bgit\s+stash\s+drop\b'
+    reason: Permanently deletes a stash
+    ask: true
+  - pattern: '\bgit\s+branch\s+(-[^\s]*)*-D'
+    reason: Force deletes branch (even if unmerged)
+    ask: true
+  - pattern: '\bgit\s+push\s+\S+\s+--delete\b'
+    reason: Deletes remote branch
+    ask: true
+  - pattern: '\bgit\s+push\s+\S+\s+:\S+'
+    reason: Deletes remote branch (old syntax)
+    ask: true
+
+  # ── System-Destruktion ──────────────────────────────────────────────────────
+  - pattern: '\bmkfs\.'
+    reason: filesystem format command
+  - pattern: '\bdd\s+.*of=/dev/'
+    reason: dd writing to device
+  - pattern: '\bkill\s+-9\s+-1\b'
+    reason: kill all processes
+  - pattern: '\bkillall\s+-9\b'
+    reason: killall -9
+  - pattern: '\bpkill\s+-9\b'
+    reason: pkill -9
+  - pattern: '\bhistory\s+-c\b'
+    reason: clearing shell history
+
+  # ── Datenbank-Destruktion ───────────────────────────────────────────────────
+  - pattern: 'DELETE\s+FROM\s+\w+\s*;'
+    reason: DELETE without WHERE clause (will delete ALL rows)
+  - pattern: 'DELETE\s+\*\s+FROM'
+    reason: DELETE * (will delete ALL rows)
+  - pattern: '\bTRUNCATE\s+TABLE\b'
+    reason: TRUNCATE TABLE (will delete ALL rows)
+  - pattern: '\bDROP\s+TABLE\b'
+    reason: DROP TABLE
+  - pattern: '\bDROP\s+DATABASE\b'
+    reason: DROP DATABASE
+  - pattern: '\bDROP\s+SCHEMA\b'
+    reason: DROP SCHEMA
+  - pattern: '\bDELETE\s+FROM\s+\w+\s+WHERE\b.*\bid\s*='
+    reason: SQL DELETE with specific ID
+    ask: true
+
+# ── Zero-Access-Paths (Org: keine internen/kunden-/personenbezogenen Daten) ──
+# Kein Lese- ODER Schreibzugriff auf Credentials/Secrets/SSH-Material.
+zeroAccessPaths:
+  # Env-Dateien
+  - ".env"
+  - ".env.local"
+  - ".env.development"
+  - ".env.production"
+  - ".env.staging"
+  - ".env.test"
+  - ".env.*.local"
+  - "*.env"
+  # SSH / GPG / Credentials
+  - "~/.ssh/"
+  - "~/.gnupg/"
+  - "~/.aws/"
+  - "~/.azure/"
+  - "~/.kube/"
+  - "~/.docker/"
+  - "~/.netrc"
+  - "~/.npmrc"
+  - "~/.pypirc"
+  - "~/.git-credentials"
+  - ".git-credentials"
+  # Cloud-Configs
+  - "~/.config/gcloud/"
+  # Zertifikate und Schluessel
+  - "*.pem"
+  - "*.key"
+  - "*.p12"
+  - "*.pfx"
+  # Service-Account / Credentials-JSON
+  - "*-credentials.json"
+  - "*serviceAccount*.json"
+  - "*service-account*.json"
+  - "serviceAccountKey.json"
+  - "firebase-adminsdk*.json"
+  # Kubernetes / Secrets
+  - "kubeconfig"
+  - "*-secret.yaml"
+  - "secrets.yaml"
+  # Terraform State
+  - "*.tfstate"
+  - "*.tfstate.backup"
+  - ".terraform/"
+  # Plattform-Dirs
+  - ".vercel/"
+  - ".netlify/"
+  - ".supabase/"
+  # SQL-Dumps
+  - "dump.sql"
+  - "backup.sql"
+  - "*.dump"
+
+# ── Read-Only-Paths ────────────────────────────────────────────────────────────
+readOnlyPaths:
+  - /etc/
+  - /usr/
+  - /bin/
+  - /sbin/
+  - /boot/
+  - /root/
+  - ~/.bash_history
+  - ~/.zsh_history
+  - ~/.node_repl_history
+  - ~/.bashrc
+  - ~/.zshrc
+  - ~/.profile
+  - ~/.bash_profile
+  # Lock-Dateien (nie manuell aendern)
+  - "bun.lockb"
+  - "*.lock"
+  - "*.lockb"
+  # Build-Artefakte
+  - "*.min.js"
+  - "*.min.css"
+  - "*.bundle.js"
+  - "*.chunk.js"
+  - dist/
+  - build/
+  - .next/
+  - .nuxt/
+  - .output/
+  - __pycache__/
+  - .venv/
+  - venv/
+  - target/
+
+# ── No-Delete-Paths ────────────────────────────────────────────────────────────
+noDeletePaths:
+  - ~/.claude/
+  - CLAUDE.md
+  - "LICENSE"
+  - "LICENSE.*"
+  - "COPYING"
+  - "COPYING.*"
+  - "NOTICE"
+  - "PATENTS"
+  - "README.md"
+  - "README.*"
+  - "CONTRIBUTING.md"
+  - "CHANGELOG.md"
+  - "CODE_OF_CONDUCT.md"
+  - "SECURITY.md"
+  - .git/
+  - .gitignore
+  - .gitattributes
+  - .gitmodules
+  - .github/
+  - Dockerfile
+  - "Dockerfile.*"
+  - docker-compose.yml
+  - "docker-compose.*.yml"
+  - .dockerignore

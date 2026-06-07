@@ -74,7 +74,7 @@ const inflight = new Map<string, Promise<HookInjectResult>>();
  * Cached per cwd for {@link TTL_MS}; concurrent calls share one in-flight run.
  * Pass a `runner` to bypass the real subprocess (tests).
  */
-export function collectHookInject(
+function collectHookInject(
   cwd: string,
   runner: HookRunner = realRunner,
 ): Promise<HookInjectResult> {
@@ -101,7 +101,7 @@ export function collectHookInject(
 }
 
 /** Test helper: drop the per-cwd cache so TTL/single-flight tests start clean. */
-export function _resetHookCache(): void {
+function _resetHookCache(): void {
   cache.clear();
   inflight.clear();
 }

@@ -8,14 +8,14 @@ import { join } from "@std/path";
 import { repoRoot } from "./project.ts";
 
 /** Backlog Kanban columns / allowed statuses. */
-export const TASK_STATUSES = ["To Do", "In Progress", "Done"];
+const TASK_STATUSES = ["To Do", "In Progress", "Done"];
 const TASK_ID_RE = /^[A-Za-z]+-\d+(?:\.\d+)*$/;
 
 /**
  * Move a backlog task to a new status via `backlog task edit -s` (dev-data
  * mutation). Validates id + status to avoid injection. Used by the Kanban board.
  */
-export async function setTaskStatus(
+async function setTaskStatus(
   cwd: string,
   id: string,
   status: string,
@@ -73,7 +73,7 @@ async function parseTaskFile(fpath: string, filename: string): Promise<TaskRecor
   };
 }
 
-export async function collectBacklog(cwd: string): Promise<Record<string, unknown>> {
+async function collectBacklog(cwd: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
     const tasksDir = join(repo, "backlog", "tasks");

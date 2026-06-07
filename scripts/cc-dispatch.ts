@@ -1,28 +1,33 @@
 /**
- * cc-dispatch.ts — claude -p Spawn-Helper für den pi-Orchestrator-Workflow
+ * cc-dispatch.ts — Claude Agent SDK Worker-Dispatcher für den pi-Orchestrator-Workflow
  *
  * Exportiert dispatchWorker(roleNameOrDef, prompt, opts) das:
  * - aus .pi/agents/<role>.md (Frontmatter: tools + Body: systemPrompt) ODER
- *   aus direkt übergebenen opts.tools / opts.systemPrompt die claude-Flags baut
- * - claude -p headless spawnt (stdout/stderr getrennt)
- * - Timeout via SIGTERM sauber abbricht
- * - JSON-Output parst → {result, is_error, total_cost_usd, num_turns, exitCode}
+ *   aus direkt übergebenen opts.tools / opts.systemPrompt die SDK-Options baut
+ * - Claude in-process via @anthropic-ai/claude-agent-sdk query() startet
+ * - Timeout via AbortController sauber abbricht
+ * - SDKResultMessage ausliest → {result, is_error, total_cost_usd, num_turns, exitCode}
  *
- * CLI: bun scripts/cc-dispatch.ts <role-or-tools> <prompt>
+ * CLI: bun scripts/cc-dispatch.ts <role-or-tools> <prompt> [--model X] [--timeout S] [--dry-run]
  *
- * Flag-Mapping (aus spec-pi-orchestrator-workflow.md § "claude -p Flag-Mapping"):
- *   -p / --print               → headless, einmalig
- *   --output-format json       → maschinenlesbares Ergebnis
- *   --model <id>               → Modell pro Worker (default: claude-haiku-4-5-20251001)
- *   --allowedTools "<list>"    → Tool-Whitelist pro Rolle (space-getrennt)
- *   --append-system-prompt     → Rollen-Persona (Body aus .md)
- *   --permission-mode auto     → Headless ohne User-Prompt (keine interaktive Abfrage)
- *   CC_ORCHESTRATED=1 (env)    → Hook-Gating der cc-setup SessionStart/Stop-Hooks
+ * Sicherheits-Entscheidungen (vom User autorisiert):
+ *   settingSources: []       — SDK isolation mode: lädt KEINE ~/.claude/settings.json
+ *                              und KEINE Hooks (inkl. redactor) im Worker.
+ *                              Bewusste Entscheidung für den pi-Workflow: Worker
+ *                              laufen isoliert, redactor-Hook gilt nur in der Hauptsession.
+ *   env: { ...process.env } — env ERSETZT process.env vollständig im SDK (kein Merge).
+ *                              Spread ist Pflicht, sonst fehlt PATH/ANTHROPIC_API_KEY.
+ *   permissionMode: 'auto'  — Headless ohne User-Prompt (Worker läuft unbeaufsichtigt).
+ *                             'bypassPermissions' würde allowDangerouslySkipPermissions:true
+ *                             erfordern — NICHT genutzt.
  *
- * Nicht verwendet: --settings mit leerem hooks → würde redactor abschalten (Org-Verstoß)
+ * Tool-Name-Mapping (CLI-Name → SDK-Name):
+ *   read → Read, write → Write, edit → Edit, bash → Bash, grep → Grep,
+ *   find → Glob, ls → Glob
  */
 
-import { spawn } from "node:child_process";
+import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -39,9 +44,9 @@ export interface WorkerResult {
 }
 
 export interface DispatchOpts {
-  /** Claude-Modell-ID (default: claude-haiku-4-5-20251001 — günstig für Smoke) */
+  /** Claude-Modell-ID (default: claude-haiku-4-5 — günstig für Smoke) */
   model?: string;
-  /** Space-getrennte Tool-Namen, überschreibt Frontmatter tools falls angegeben */
+  /** Komma- oder space-getrennte CLI-Tool-Namen, überschreibt Frontmatter tools falls angegeben */
   tools?: string;
   /** System-Prompt-Body, überschreibt .md-Body falls angegeben */
   systemPrompt?: string;
@@ -49,25 +54,72 @@ export interface DispatchOpts {
   timeoutSecs?: number;
   /** Arbeitsverzeichnis für den Worker */
   cwd?: string;
-  /** Falls true: baue argv, spawne NICHT (für dry-run / Tests) */
+  /** Falls true: zeige assemblierten query-Options-Dump ohne zu spawnen */
   dryRun?: boolean;
+  /** Falls true: alle system-Messages auf stderr ausgeben (inkl. thinking_tokens u.ä. Rauschen) */
+  debug?: boolean;
+  /**
+   * Rolle des Workers — steuert permissionMode.
+   * 'builder': bypassPermissions + allowDangerouslySkipPermissions (darf Write/Edit/Bash ausführen).
+   * Alle anderen: 'auto' (kein Bypass, kein interaktiver Prompt im headless Betrieb).
+   *
+   * Begründung: settingSources:[] isoliert den Worker von ~/.claude/settings.json und
+   * externen Hooks (inkl. redactor). Mit 'auto' würde der Worker Tool-Calls bei
+   * fehlender Permission interaktiv blockieren, was im headless pi-Betrieb hängt.
+   * 'bypassPermissions' + allowDangerouslySkipPermissions erlaubt dem builder alle
+   * zugelassenen Tools ohne Prompt. Damage-control + Caps bleiben pi-seitig aktiv.
+   * User-Autorisierung: privater repo-lokaler Einsatz, Human-Oversight-Pflicht gilt
+   * weiterhin (nur der User merged PRs; builder hat kein 'git push').
+   */
+  role?: string;
 }
 
 interface RoleDef {
-  tools: string;      // space-getrennte Tool-Namen für --allowedTools
+  tools: string;      // space-getrennte CLI-Tool-Namen (read, bash, grep, …)
   systemPrompt: string;
+}
+
+// ── Tool-Name-Mapping: CLI → SDK ─────────────────────────────────────────────
+
+/**
+ * Übersetzt komma-/space-getrennte CLI-Tool-Namen (read,bash,grep,find,ls)
+ * in die SDK-Kapitalisierung (Read, Bash, Grep, Glob).
+ *
+ * Unbekannte Namen werden unverändert durchgereicht — das erlaubt MCP-Tool-Namen
+ * wie mcp__myserver__tool ohne Filterung.
+ */
+function cliToolsToSdkTools(cliTools: string): string[] {
+  const CLI_TO_SDK: Record<string, string> = {
+    read:  "Read",
+    write: "Write",
+    edit:  "Edit",
+    bash:  "Bash",
+    grep:  "Grep",
+    find:  "Glob",
+    ls:    "Glob",
+  };
+
+  const raw = cliTools
+    .split(/[\s,]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+
+  const sdkNames = raw.map((name) => CLI_TO_SDK[name] ?? name);
+
+  // Deduplizieren (z.B. find + ls → beide "Glob")
+  return [...new Set(sdkNames)];
 }
 
 // ── Rolle aus .pi/agents/<name>.md parsen ────────────────────────────────────
 
 /**
  * Liest .pi/agents/<role>.md relativ zu diesem Repo-Root und parst:
- *   - Frontmatter-Feld "tools:" → comma→space normalisiert
+ *   - Frontmatter-Feld "tools:" → space-normalisiert
  *   - Body nach dem zweiten "---" → systemPrompt
  *
  * Falls die Datei nicht existiert, gibt null zurück (Caller muss opts.tools liefern).
  */
-function loadRoleDef(roleOrPath: string): RoleDef | null {
+export function loadRoleDef(roleOrPath: string): RoleDef | null {
   // Absoluter Pfad oder relativ zu cwd
   let filePath = roleOrPath;
   if (!roleOrPath.includes("/") && !roleOrPath.endsWith(".md")) {
@@ -127,18 +179,18 @@ function loadRoleDef(roleOrPath: string): RoleDef | null {
   return { tools, systemPrompt: body };
 }
 
-// ── argv bauen ────────────────────────────────────────────────────────────────
+// ── Query-Options bauen ───────────────────────────────────────────────────────
 
 /**
- * Baut die vollständige Argument-Liste für `claude`.
- * Gibt {argv, roleDef} zurück — roleDef.tools/systemPrompt sind die genutzten Werte.
+ * Baut die SDK query()-Options aus Rolle + DispatchOpts.
+ * Gibt {queryOpts, roleDef} zurück.
  */
-export function buildArgv(
+export function buildQueryOpts(
   roleNameOrDef: string,
   prompt: string,
   opts: DispatchOpts = {},
-): { argv: string[]; roleDef: RoleDef } {
-  const model = opts.model ?? "claude-haiku-4-5-20251001";
+): { queryOpts: Record<string, unknown>; roleDef: RoleDef } {
+  const model = opts.model ?? "claude-haiku-4-5";
 
   // Rolle laden (falls tools/systemPrompt direkt per opts übergeben → Datei optional)
   let roleDef: RoleDef = { tools: "", systemPrompt: "" };
@@ -150,36 +202,68 @@ export function buildArgv(
   if (opts.tools !== undefined) roleDef.tools = opts.tools;
   if (opts.systemPrompt !== undefined) roleDef.systemPrompt = opts.systemPrompt;
 
-  // WICHTIG: claude erwartet den Prompt direkt nach -p (bzw. als erstes positionales Arg).
-  // Reihenfolge: claude -p <prompt> --output-format json --model … --allowedTools …
-  // Flags nach dem Prompt sind weiterhin gültig (claude parst alle Optionen).
-  const argv: string[] = [
-    "-p", prompt,         // headless + Prompt direkt nach -p
-    "--output-format", "json",
-    "--model", model,
-    "--permission-mode", "auto",
-  ];
+  // CLI-Tool-Namen → SDK-Kapitalisierung
+  const sdkTools = roleDef.tools ? cliToolsToSdkTools(roleDef.tools) : [];
 
-  if (roleDef.tools) {
-    argv.push("--allowedTools", roleDef.tools);
-  }
+  // ── Permission-Mode pro Rolle ─────────────────────────────────────────────
+  // builder: bypassPermissions + allowDangerouslySkipPermissions
+  //   → darf Write/Edit/Bash ohne interaktiven Prompt ausführen.
+  //   Begründung: settingSources:[] lädt keine Hooks; 'auto' würde im headless
+  //   Betrieb bei Tool-Calls hängen (kein Terminal für User-Prompt vorhanden).
+  //   Damage-control + Caps bleiben pi-seitig (cc-orchestrator.ts) aktiv.
+  //   User-autorisiert: privater Einsatz; Human-Oversight via Gate₀ + Review.
+  // planner / reviewer / default: 'auto'
+  //   → read-only Rollen nutzen kein Bypass (kein Write/Edit/Bash erlaubt).
+  //   'auto' reicht hier, weil nur lesende Tools (Read, Grep, Glob) verwendet
+  //   werden und diese im headless Modus keine Permission-Prompts auslösen.
+  const isBuilder = (opts.role ?? "") === "builder";
+  const permissionMode = isBuilder ? "bypassPermissions" : "auto";
+
+  const queryOpts: Record<string, unknown> = {
+    model,
+    // tools: begrenzt die verfügbare Tool-Basis; leer = kein Built-in-Tool
+    tools: sdkTools.length > 0 ? sdkTools : ([] as string[]),
+    // allowedTools: auto-allow ohne Prompt — gleiche Liste wie tools (kein extra Confirm)
+    allowedTools: sdkTools.length > 0 ? sdkTools : undefined,
+    permissionMode,
+    // allowDangerouslySkipPermissions: Pflicht für bypassPermissions (SDK-Requirement).
+    // Nur für builder gesetzt; für andere Rollen explizit false.
+    allowDangerouslySkipPermissions: isBuilder,
+    // settingSources: [] = SDK isolation mode.
+    // Lädt KEINE ~/.claude/settings.json und KEINE externen Hooks (inkl. redactor).
+    // Explizit autorisiert vom User für den pi-Workflow: Worker laufen isoliert,
+    // redactor-Schutz gilt in der Hauptsession (diese Datei), nicht im Worker-Subprocess.
+    settingSources: [] as string[],
+    // env ERSETZT process.env vollständig (SDK macht kein Merge).
+    // Spread-Pflicht damit PATH, HOME, ANTHROPIC_API_KEY usw. erhalten bleiben.
+    env: { ...process.env, CC_ORCHESTRATED: "1" },
+    cwd: opts.cwd ?? process.cwd(),
+  };
 
   if (roleDef.systemPrompt) {
-    argv.push("--append-system-prompt", roleDef.systemPrompt);
+    queryOpts.systemPrompt = roleDef.systemPrompt;
   }
 
-  return { argv, roleDef };
-
+  return { queryOpts, roleDef };
 }
 
-// ── Spawn + Parse ─────────────────────────────────────────────────────────────
+// ── Dispatch via SDK query() ──────────────────────────────────────────────────
 
 /**
- * Hauptfunktion: spawnt claude -p, wartet auf Ergebnis, parst JSON.
+ * Hauptfunktion: startet Claude in-process via @anthropic-ai/claude-agent-sdk,
+ * wartet auf SDKResultMessage, gibt WorkerResult zurück.
  *
  * @param roleNameOrDef  Rollenname (sucht .pi/agents/<name>.md) oder Pfad zur .md
  * @param prompt         Prompt, der dem Worker übergeben wird
  * @param opts           Optionale Überschreibungen (model, tools, systemPrompt, timeout, …)
+ *
+ * Live-Streaming (AC#1):
+ *   Jede SDK-Message wird auf process.stderr ausgegeben — stdout bleibt für das
+ *   finale JSON {result,is_error,...} reserviert (Contract für Orchestrator-Parsing).
+ *   Format:
+ *     [assistant] <text>          — Text-Blöcke aus assistant-Messages
+ *     [assistant] → tool: <Name>(<preview>)  — tool_use-Blöcke
+ *     [system] <subtype>          — system/status/result-Messages (Debug)
  */
 export async function dispatchWorker(
   roleNameOrDef: string,
@@ -187,12 +271,17 @@ export async function dispatchWorker(
   opts: DispatchOpts = {},
 ): Promise<WorkerResult> {
   const timeoutMs = (opts.timeoutSecs ?? 120) * 1000;
-  const { argv } = buildArgv(roleNameOrDef, prompt, opts);
+  // Rolle in opts.role setzen falls noch nicht gesetzt (für buildQueryOpts)
+  // — wird aus dem CLI-Arg oder direkt übergeben
+  const { queryOpts } = buildQueryOpts(roleNameOrDef, prompt, opts);
 
   if (opts.dryRun) {
-    // Dry-Run: gibt zusammengebaute argv zurück ohne zu spawnen
+    // Dry-Run: zeige assemblierten Options-Dump, spawne nicht
+    const dumpOpts = { ...queryOpts };
+    // env nicht im Dump ausgeben (enthält potentiell sensible Keys)
+    dumpOpts.env = "[process.env spread + CC_ORCHESTRATED=1]";
     return {
-      result: `[dry-run] claude ${argv.join(" ")}`,
+      result: `[dry-run] query opts:\n${JSON.stringify({ prompt, options: dumpOpts }, null, 2)}`,
       is_error: false,
       total_cost_usd: 0,
       num_turns: 0,
@@ -201,105 +290,145 @@ export async function dispatchWorker(
     };
   }
 
-  return new Promise<WorkerResult>((resolve) => {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      CC_ORCHESTRATED: "1",   // Hook-Gating: SessionStart/Stop überspringen
-    };
+  // AbortController für Timeout
+  const abortController = new AbortController();
+  const timer = setTimeout(() => abortController.abort(), timeoutMs);
 
-    let proc: ReturnType<typeof spawn>;
-    try {
-      proc = spawn("claude", argv, {
-        stdio: ["ignore", "pipe", "pipe"],
-        env,
-        cwd: opts.cwd,
-      });
-    } catch (spawnErr: unknown) {
-      const msg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
-      resolve({
-        result: "",
-        is_error: true,
-        total_cost_usd: 0,
-        num_turns: 0,
-        exitCode: 1,
-        stderr: "",
-        error: `spawn error: ${msg}`,
-      });
-      return;
+  let resultMsg: SDKMessage & { type: "result" } | null = null;
+  let stderrBuf = "";
+  let queryError: string | undefined;
+
+  try {
+    const queryResult = sdkQuery({
+      prompt,
+      options: {
+        ...(queryOpts as Record<string, unknown>),
+        abortController,
+        stderr: (data: string) => { stderrBuf += data; },
+      } as Parameters<typeof sdkQuery>[0]["options"],
+    });
+
+    for await (const message of queryResult) {
+      // ── Live-Streaming auf stderr (AC#1) ─────────────────────────────────
+      // stdout ist RESERVIERT für das finale JSON — kein mix!
+      // Alle intermediären Messages kommen auf stderr für den pi-TUI-Consumer.
+      if (message.type === "assistant") {
+        // BetaMessage.content ist ein Array aus BetaContentBlock
+        const msg = message as SDKMessage & { type: "assistant"; message: { content: Array<{ type: string; text?: string; name?: string; input?: unknown }> } };
+        if (Array.isArray(msg.message?.content)) {
+          for (const block of msg.message.content) {
+            if (block.type === "text" && block.text) {
+              // Text-Blöcke: Zeile für Zeile, um langen Output lesbar zu machen
+              for (const line of block.text.split("\n")) {
+                process.stderr.write(`[assistant] ${line}\n`);
+              }
+            } else if (block.type === "tool_use" && block.name) {
+              // Tool-Call: Name + kurzes Input-Preview (max 120 Zeichen, kein Token-Leak)
+              const inputStr = JSON.stringify(block.input ?? {});
+              const preview = inputStr.length > 120 ? inputStr.slice(0, 117) + "..." : inputStr;
+              process.stderr.write(`[assistant] → tool: ${block.name}(${preview})\n`);
+            }
+          }
+        }
+      } else if (message.type === "result") {
+        resultMsg = message as SDKMessage & { type: "result" };
+        process.stderr.write(`[result] turns=${(resultMsg as { num_turns?: number }).num_turns ?? "?"} is_error=${(resultMsg as { is_error?: boolean }).is_error ?? false}\n`);
+        break;
+      } else if (message.type === "system") {
+        // Nur sinnvolle system-subtypes ausgeben; reines Token-Rauschen (thinking_tokens,
+        // status_update, …) wird gefiltert damit das 20-Zeilen TUI-Fenster nicht geflutet wird.
+        // Mit --debug werden alle system-Messages ausgegeben.
+        const sub = (message as { subtype?: string }).subtype ?? "";
+        const SYSTEM_NOISE = new Set([
+          "thinking_tokens",
+          "status_update",
+          "api_error_retry",
+          "rate_limit",
+        ]);
+        if (opts.debug || !SYSTEM_NOISE.has(sub)) {
+          process.stderr.write(`[system] ${sub || message.type}\n`);
+        }
+      }
+      // Andere Message-Typen (user, auth_status, …) werden still übersprungen —
+      // sie sind für das TUI nicht relevant und würden die Ausgabe überfrachten.
     }
-
-    let stdoutBuf = "";
-    let stderrBuf = "";
-    let timedOut = false;
-
-    // Timeout: SIGTERM nach timeoutMs
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill("SIGTERM");
-    }, timeoutMs);
-
-    proc.stdout!.setEncoding("utf-8");
-    proc.stdout!.on("data", (chunk: string) => { stdoutBuf += chunk; });
-
-    proc.stderr!.setEncoding("utf-8");
-    proc.stderr!.on("data", (chunk: string) => { stderrBuf += chunk; });
-
-    proc.on("close", (code: number | null) => {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // AbortError → Timeout
+    if (abortController.signal.aborted) {
       clearTimeout(timer);
-      const exitCode = code ?? 1;
-
-      if (timedOut) {
-        resolve({
-          result: "",
-          is_error: true,
-          total_cost_usd: 0,
-          num_turns: 0,
-          exitCode: exitCode !== 0 ? exitCode : 1,
-          stderr: stderrBuf,
-          error: `timeout after ${opts.timeoutSecs ?? 120}s — worker killed via SIGTERM`,
-        });
-        return;
-      }
-
-      // JSON parsen
-      const raw = stdoutBuf.trim();
-      let parsed: Record<string, unknown> = {};
-      let parseError = "";
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        parseError = `JSON parse error: ${e instanceof Error ? e.message : String(e)} — raw: ${raw.slice(0, 200)}`;
-      }
-
-      const is_error =
-        Boolean(parsed.is_error) || exitCode !== 0 || parseError !== "";
-
-      resolve({
-        result: String(parsed.result ?? ""),
-        is_error,
-        total_cost_usd: Number(parsed.total_cost_usd ?? 0),
-        num_turns: Number(parsed.num_turns ?? 0),
-        exitCode,
-        stderr: stderrBuf,
-        // Fehlerquelle: parseError > parsed.result (enthält claude-Fehlermeldung) > stderr (nur MCP-Warnings etc.)
-        error: parseError
-          || (is_error ? (String(parsed.result || "") || stderrBuf.slice(0, 500)) : undefined),
-      });
-    });
-
-    proc.on("error", (err: Error) => {
-      clearTimeout(timer);
-      resolve({
+      return {
         result: "",
         is_error: true,
         total_cost_usd: 0,
         num_turns: 0,
         exitCode: 1,
         stderr: stderrBuf,
-        error: `process error: ${err.message}`,
-      });
-    });
-  });
+        error: `timeout after ${opts.timeoutSecs ?? 120}s — worker aborted via AbortController`,
+      };
+    }
+    queryError = `SDK error: ${msg}`;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  // AbortController ausgelöst aber kein Catch → Timeout ohne Exception
+  if (abortController.signal.aborted && !resultMsg && !queryError) {
+    return {
+      result: "",
+      is_error: true,
+      total_cost_usd: 0,
+      num_turns: 0,
+      exitCode: 1,
+      stderr: stderrBuf,
+      error: `timeout after ${opts.timeoutSecs ?? 120}s — worker aborted via AbortController`,
+    };
+  }
+
+  if (queryError) {
+    return {
+      result: "",
+      is_error: true,
+      total_cost_usd: 0,
+      num_turns: 0,
+      exitCode: 1,
+      stderr: stderrBuf,
+      error: queryError,
+    };
+  }
+
+  if (!resultMsg) {
+    return {
+      result: "",
+      is_error: true,
+      total_cost_usd: 0,
+      num_turns: 0,
+      exitCode: 1,
+      stderr: stderrBuf,
+      error: "SDK query ended without result message",
+    };
+  }
+
+  // SDKResultSuccess hat .result (string), SDKResultError nicht
+  const isSuccess = resultMsg.subtype === "success";
+  const resultText = isSuccess ? (resultMsg as { result?: string }).result ?? "" : "";
+  const isError = resultMsg.is_error ?? !isSuccess;
+
+  // Fehlermeldung: SDK-errors-Array > result-Text (wenn is_error) > stderr-Fallback
+  const errors = (resultMsg as { errors?: string[] }).errors;
+  const errorMsg = isError
+    ? (errors?.length ? errors.join("; ") : (resultText || stderrBuf.slice(0, 500)) || undefined)
+    : undefined;
+
+  return {
+    result: resultText,
+    is_error: isError,
+    total_cost_usd: resultMsg.total_cost_usd ?? 0,
+    num_turns: resultMsg.num_turns ?? 0,
+    exitCode: isError ? 1 : 0,
+    stderr: stderrBuf,
+    error: errorMsg,
+  };
 }
 
 // ── CLI-Entry ─────────────────────────────────────────────────────────────────
@@ -310,14 +439,15 @@ if (import.meta.main) {
 
   if (args.length < 2) {
     console.error(
-      "Usage: bun scripts/cc-dispatch.ts <role|tools> <prompt> [--model <id>] [--timeout <secs>] [--dry-run]",
+      "Usage: bun scripts/cc-dispatch.ts <role|tools> <prompt> [--model <id>] [--timeout <secs>] [--role <role>] [--dry-run] [--debug]",
     );
-    console.error("  role:    Name einer .pi/agents/<role>.md (z.B. reviewer)");
-    console.error("  tools:   Space-getrennte Tool-Namen wenn keine .md-Datei (z.B. 'Read')");
-    console.error("  prompt:  Prompt-Text");
-    console.error("  --model: Claude-Modell-ID (default: claude-haiku-4-5-20251001)");
+    console.error("  role:      Name einer .pi/agents/<role>.md (z.B. reviewer)");
+    console.error("  tools:     Komma/space-getrennte CLI-Tool-Namen wenn keine .md-Datei (z.B. 'read')");
+    console.error("  prompt:    Prompt-Text");
+    console.error("  --model:   Claude-Modell-ID (default: claude-haiku-4-5)");
     console.error("  --timeout: Timeout in Sekunden (default: 120)");
-    console.error("  --dry-run: Gibt nur die zusammengebaute argv aus, spawnt nicht");
+    console.error("  --role:    Worker-Rolle für Permission-Mode (builder → bypassPermissions; andere → auto)");
+    console.error("  --dry-run: Gibt nur die assemblierten query-Options aus, spawnt nicht");
     process.exit(1);
   }
 
@@ -331,8 +461,12 @@ if (import.meta.main) {
       opts.model = args[++i];
     } else if (args[i] === "--timeout" && args[i + 1]) {
       opts.timeoutSecs = parseInt(args[++i], 10);
+    } else if (args[i] === "--role" && args[i + 1]) {
+      opts.role = args[++i];
     } else if (args[i] === "--dry-run") {
       opts.dryRun = true;
+    } else if (args[i] === "--debug") {
+      opts.debug = true;
     }
   }
 

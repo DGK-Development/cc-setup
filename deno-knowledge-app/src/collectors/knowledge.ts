@@ -26,7 +26,7 @@ export interface LektionEntry {
 const DECISION_LINE_RE = /^\s*##\s+(?<id>\d+)\s*(?:—|-{1,2})\s*(?<title>.*\S)\s*$/;
 const STATUS_RE = /^\s*(?:[-*]\s*)?\**\s*Status\s*\**\s*[:=]\s*(.+\S)\s*$/i;
 
-export function parseDecisionsMd(text: string): Decision[] {
+function parseDecisionsMd(text: string): Decision[] {
   const out: Decision[] = [];
   let current: Decision | null = null;
   const body: string[] = [];
@@ -126,7 +126,7 @@ export interface ChangelogEntry {
  *  Result is sorted newest-first: if headings contain ISO dates and the file
  *  appears to be oldest-first (first date < last date), the array is reversed.
  */
-export function parseChangelogBlocks(text: string, limit = 20): ChangelogEntry[] {
+function parseChangelogBlocks(text: string, limit = 20): ChangelogEntry[] {
   const blocks: ChangelogEntry[] = [];
   let current: ChangelogEntry | null = null;
   const bodyLines: string[] = [];
@@ -244,7 +244,7 @@ async function backlogDocs(repo: string): Promise<DocEntry[]> {
   return out;
 }
 
-export async function collectKnowledge(
+async function collectKnowledge(
   cwd: string,
   vaultPath?: string,
 ): Promise<Record<string, unknown>> {

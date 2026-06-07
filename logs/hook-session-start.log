@@ -1,23 +1,21 @@
-=== SESSION START HOOK 2026-06-06 21:35:36 ===
+=== SESSION START HOOK 2026-06-07 09:21:11 ===
 CWD: /Users/niclasedge/GITHUB_DG/cc-setup
 Vault: /Users/niclasedge/GITHUB/ObsidianPKM
 
 === Backlog-Stand (PRIMÄR — Backlog.md ist die Arbeits-Quelle) ===
 Offene Milestones:
-  - ccs-sprint: pi-Orchestrator-Workflow (6/12 done)
-      offen: CCS-035, CCS-035.08, CCS-035.09, CCS-035.10, CCS-035.11, CCS-035.07
+  - ccs-sprint: pi-Orchestrator-Workflow (7/12 done)
+      offen: CCS-035, CCS-035.11, CCS-035.02, CCS-035.07, CCS-035.10
 
 In Progress:
-  [MEDIUM] CCS-010 - Externe Stop-Sub-Hooks vendoren oder sauber degradieren (cleanup-dispatch-stop + sync-sessions-to-vault)
-  [LOW] CCS-011 - Verwaiste Legacy-Scripts aufraeumen (prompt-sync, prompt-vault-setup)
-  CCS-032 - deno-knowledge-app: frontmatterField bricht bei CRLF-Zeilenenden (md.ts) -> leere description
-  CCS-034 - deno-knowledge-app: Kontext-View Token-Genauigkeit + Pfad-URLs je Unterseite + Projekt-View Performance
+  CCS-035.02 - claude -p Spawn-Helper + Flag-Mapping
   CCS-035.07 - Orchestrator-Extension .pi/extensions/cc-orchestrator.ts
+  CCS-035.10 - End-to-End-Dry-Run + Org-Compliance-Checkliste
 
 Nächste To-Dos:
+  [MEDIUM] CCS-010 - Externe Stop-Sub-Hooks vendoren oder sauber degradieren (cleanup-dispatch-stop + sync-sessions-to-vault)
   [MEDIUM] CCS-035 - [Meilenstein] pi-Orchestrator-Workflow (lokaler pi -> claude -p Worker)
-  CCS-035.08 - Safety: damage-control + Caps + single-flight
-  CCS-035.09 - Spec-Gate & Human-Intervention (Pause/Resume/ntfy)
-  CCS-035.10 - End-to-End-Dry-Run + Org-Compliance-Checkliste
+  [LOW] CCS-011 - Verwaiste Legacy-Scripts aufraeumen (prompt-sync, prompt-vault-setup)
   CCS-035.11 - Doku + just orchestrate + ADR
+  CCS-036 - REVIEWER-THROWAWAY: G3 gate test
 

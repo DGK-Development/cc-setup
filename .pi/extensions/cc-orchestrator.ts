@@ -13,35 +13,103 @@
  *          scripts/cc-backlog.sh  (Backlog-Bridge)
  *          scripts/run-gates.sh   (deterministischer Gate-Runner)
  *
- * pi-Invocation (Dispatcher mit Ollama):
+ * pi-Invocation (beide Extensions — damage-control + orchestrator):
  *   pi --provider ollama --model gemma4:12b-mlx \
+ *      -e .pi/extensions/damage-control.ts \
  *      -e .pi/extensions/cc-orchestrator.ts \
  *      --no-builtin-tools -p "Start orchestrator pipeline"
  *
  * Robustere Alternative (besseres Tool-Calling):
  *   pi --provider ollama --model gemma4-tool \
+ *      -e .pi/extensions/damage-control.ts \
  *      -e .pi/extensions/cc-orchestrator.ts \
  *      --no-builtin-tools -p "Start orchestrator pipeline"
  *
- * Notiz: Caps-Enforcement, single-flight Lock und Kill-Switch sind Naht für Task .08.
- *        Pause/Resume/ntfy-Mechanik ist Naht für Task .09.
- *        requestHuman() + .pi/orchestrator-state.json sind die Verbindungspunkte.
+ * Safety (Task .08):
+ *   - Caps-Enforcement: MAX_DEV_RETRIES, MAX_REVIEW_RETRIES, MAX_COST_USD, MAX_WALL_CLOCK
+ *   - Single-Flight Lock: .pi/orchestrator.lock (PID-based, Stale-Lock-Handling)
+ *   - Kill-Switch: touch .pi/orchestrator.kill (pipeline aborts cleanly, no Done set)
+ *   - damage-control: blocks rm -rf / git reset --hard / git push / .env/.pem/~/.ssh
+ *
+ * Naht für Task .09: Pause/Resume/ntfy — requestHuman() + .pi/orchestrator-state.json.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { join } from "path";
 
-// ── Caps-Konstanten (Task .08 verdrahtet Enforcement/single-flight/Kill-Switch) ──
+// ── Caps-Konstanten ────────────────────────────────────────────────────────────
 
 const CAPS = {
   MAX_DEV_RETRIES: 2,           // Maximale Builder-Retry-Zyklen bei Gate-Fail
   MAX_REVIEW_RETRIES: 1,        // Maximale Builder-Retries bei Reviewer-REJECT
-  MAX_COST_USD_PER_TASK: 5.0,   // Kostenlimit pro Task (Enforcement: Task .08)
-  MAX_WALL_CLOCK_PER_TASK: 900, // Wanduhrlimit in Sekunden pro Task (Enforcement: Task .08)
+  MAX_COST_USD_PER_TASK: 5.0,   // Kostenlimit pro Task in USD
+  MAX_WALL_CLOCK_PER_TASK: 900, // Wanduhrlimit in Sekunden pro Task
 };
+
+// ── Caps-Enforcement-State (pro Task-Lauf) ────────────────────────────────────
+// Wird in session_start zurueckgesetzt; von dispatch_worker fortgeschrieben.
+
+const capsState = {
+  devRetries: 0,
+  reviewRetries: 0,
+  totalCostUsd: 0,
+  taskStartTs: 0, // Unix-ms bei Task-Start
+};
+
+/**
+ * Setzt den Caps-State zurueck. Wird am Anfang von backlog_next.execute() aufgerufen
+ * (= einmal pro Task/PICK-Schritt). session_start ruft es initial auf; die eigentliche
+ * Per-Task-Semantik liegt in backlog_next, damit bei mehreren Tasks pro Session die
+ * Caps nicht task-uebergreifend akkumulieren.
+ */
+function resetCapsState(): void {
+  capsState.devRetries = 0;
+  capsState.reviewRetries = 0;
+  capsState.totalCostUsd = 0;
+  capsState.taskStartTs = Date.now();
+}
+
+/**
+ * Prueft ob ein Cap ueberschritten ist.
+ * Gibt null zurueck wenn alles ok, sonst eine Fehlermeldung.
+ */
+function checkCaps(): string | null {
+  const elapsedSecs = (Date.now() - capsState.taskStartTs) / 1000;
+  if (capsState.devRetries > CAPS.MAX_DEV_RETRIES) {
+    return `MAX_DEV_RETRIES (${CAPS.MAX_DEV_RETRIES}) exceeded (current: ${capsState.devRetries})`;
+  }
+  if (capsState.reviewRetries > CAPS.MAX_REVIEW_RETRIES) {
+    return `MAX_REVIEW_RETRIES (${CAPS.MAX_REVIEW_RETRIES}) exceeded (current: ${capsState.reviewRetries})`;
+  }
+  if (capsState.totalCostUsd > CAPS.MAX_COST_USD_PER_TASK) {
+    return `MAX_COST_USD_PER_TASK ($${CAPS.MAX_COST_USD_PER_TASK}) exceeded (accumulated: $${capsState.totalCostUsd.toFixed(4)})`;
+  }
+  if (capsState.taskStartTs > 0 && elapsedSecs > CAPS.MAX_WALL_CLOCK_PER_TASK) {
+    return `MAX_WALL_CLOCK_PER_TASK (${CAPS.MAX_WALL_CLOCK_PER_TASK}s) exceeded (elapsed: ${Math.round(elapsedSecs)}s)`;
+  }
+  return null;
+}
+
+// ── Kill-Switch ────────────────────────────────────────────────────────────────
+// Datei-Flag: Wenn .pi/orchestrator.kill existiert, bricht die Pipeline ab.
+
+function isKillSwitchActive(repoRoot: string): boolean {
+  return existsSync(join(repoRoot, ".pi", "orchestrator.kill"));
+}
+
+/**
+ * Gemeinsame Pre-Check-Funktion: Kill-Switch + Caps.
+ * Gibt null zurueck wenn ok, sonst einen Error-String.
+ */
+function precheck(repoRoot: string): string | null {
+  if (isKillSwitchActive(repoRoot)) {
+    return "KILL_SWITCH: .pi/orchestrator.kill exists — pipeline aborted. Remove the file to resume.";
+  }
+  return checkCaps();
+}
 
 // ── Typen ─────────────────────────────────────────────────────────────────────
 
@@ -64,14 +132,6 @@ interface WorkerResult {
   exitCode: number;
   stderr: string;
   error?: string;
-}
-
-// ── Repo-Root ermitteln ──────────────────────────────────────────────────────
-
-function getRepoRoot(): string {
-  // import.meta.url ist .pi/extensions/cc-orchestrator.ts
-  // → zwei Ebenen hoch = Repo-Root
-  return resolve(new URL("../..", import.meta.url).pathname);
 }
 
 // ── cc-backlog.sh Wrapper ────────────────────────────────────────────────────
@@ -150,6 +210,10 @@ function runGatesScript(repoRoot: string): Promise<GateResult> {
  * REUSE: dispatchWorker-Logik lebt in cc-dispatch.ts — wir spawnen bun als
  * Prozess, um keine Duplikation zu haben (pi's jiti-Runtime ≠ Node, daher
  * direktes import() von cc-dispatch.ts nicht garantiert kompatibel).
+ *
+ * @param onChunk  Optionaler Callback für Live-stderr-Zeilen aus dem Worker.
+ *                 Wird pro Zeile aufgerufen — ermöglicht pi-TUI-Streaming via
+ *                 dispatch_worker's onUpdate-Callback (Muster: agent-team.ts).
  */
 function spawnDispatchWorker(
   repoRoot: string,
@@ -157,10 +221,12 @@ function spawnDispatchWorker(
   prompt: string,
   model?: string,
   timeoutSecs?: number,
+  onChunk?: (line: string) => void,
 ): Promise<WorkerResult> {
   return new Promise((resolve) => {
     const scriptPath = join(repoRoot, "scripts", "cc-dispatch.ts");
-    const args = [scriptPath, role, prompt];
+    // Übergib Rolle als --role Flag damit cc-dispatch.ts den permissionMode korrekt setzt
+    const args = [scriptPath, role, prompt, "--role", role];
     if (model) { args.push("--model", model); }
     if (timeoutSecs) { args.push("--timeout", String(timeoutSecs)); }
 
@@ -175,14 +241,32 @@ function spawnDispatchWorker(
 
     let stdout = "";
     let stderr = "";
+    // Zeilenpuffer für onChunk: Zeilen nur komplett weitergeben (nicht mitten in einer Zeile)
+    let stderrLineBuf = "";
 
     proc.stdout!.setEncoding("utf-8");
     proc.stdout!.on("data", (chunk: string) => { stdout += chunk; });
 
     proc.stderr!.setEncoding("utf-8");
-    proc.stderr!.on("data", (chunk: string) => { stderr += chunk; });
+    proc.stderr!.on("data", (chunk: string) => {
+      stderr += chunk;
+      if (onChunk) {
+        // Zeilen aus dem Puffer extrahieren und einzeln weiterleiten
+        stderrLineBuf += chunk;
+        const lines = stderrLineBuf.split("\n");
+        // Letztes Element: unvollständige Zeile → zurück in Puffer
+        stderrLineBuf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.trim()) { onChunk(line); }
+        }
+      }
+    });
 
     proc.on("close", (code: number | null) => {
+      // Restzeile im Puffer noch weiterleiten (falls Worker ohne \n endet)
+      if (onChunk && stderrLineBuf.trim()) {
+        onChunk(stderrLineBuf);
+      }
       const exitCode = code ?? 1;
       const raw = stdout.trim();
       let parsed: WorkerResult = {
@@ -225,14 +309,223 @@ function spawnDispatchWorker(
   });
 }
 
-// ── requestHuman — Naht für Task .09 (Pause/Resume/ntfy) ────────────────────
+// ── Single-Flight Lock ─────────────────────────────────────────────────────────
+// Lock-Datei: .pi/orchestrator.lock  enthält die PID des laufenden Orchestrators.
+// Verhindert, dass zwei Orchestrator-Instanzen gleichzeitig am selben Repo arbeiten.
+
+function acquireLock(repoRoot: string): { acquired: boolean; message: string } {
+  const lockFile = join(repoRoot, ".pi", "orchestrator.lock");
+  const myPid = process.pid;
+
+  if (existsSync(lockFile)) {
+    let existingPid: number | null = null;
+    try {
+      existingPid = parseInt(readFileSync(lockFile, "utf-8").trim(), 10);
+    } catch {
+      // Lesefehler → Stale Lock annehmen
+    }
+
+    if (existingPid !== null && !isNaN(existingPid)) {
+      // Pruefe ob der Prozess noch lebt
+      try {
+        process.kill(existingPid, 0); // Wirft, wenn Prozess tot
+        // Prozess lebt → Lock gehalten
+        return {
+          acquired: false,
+          message: `SINGLE_FLIGHT_LOCK: Orchestrator already running (PID ${existingPid}). Remove .pi/orchestrator.lock to force-clear. Exiting.`,
+        };
+      } catch {
+        // Prozess tot → Stale Lock; uebernehmen
+        console.error(`[cc-orchestrator] Stale lock detected (PID ${existingPid} dead). Overwriting.`);
+      }
+    }
+  }
+
+  try {
+    writeFileSync(lockFile, String(myPid), "utf-8");
+    return { acquired: true, message: `Lock acquired (PID ${myPid})` };
+  } catch (e) {
+    return {
+      acquired: false,
+      message: `Could not write lock file: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+function releaseLock(repoRoot: string): void {
+  const lockFile = join(repoRoot, ".pi", "orchestrator.lock");
+  try {
+    if (existsSync(lockFile)) {
+      const content = readFileSync(lockFile, "utf-8").trim();
+      if (content === String(process.pid)) {
+        unlinkSync(lockFile);
+      }
+      // Falls die PID nicht unsere ist (Race-Condition), nicht loeschen
+    }
+  } catch {
+    // Best-effort; kein fataler Fehler
+  }
+}
+
+// ── ntfy Notification (best-effort, uv-based) ────────────────────────────────
+//
+// Auth: Token wird NUR aus process.env.NTFY_TOKEN gelesen — kein Literal, kein
+// Fallback, kein Pfad-Hinweis im Quellcode. Ist die Variable nicht gesetzt,
+// wird der Versand still übersprungen (best-effort, Pipeline läuft weiter).
+//
+// Reuse: delegiert an ~/.claude/skills/ntfy/scripts/send-ntfy.py (kanonischer
+// Sender, hat Auth intern geregelt) — kein eigener curl-Token-Aufbau nötig.
+
+const NTFY_URL = "https://ntfy.niclasedge.com";
+const NTFY_TOPIC = "info";
 
 /**
- * Persistiert den Orchestrator-Zustand und gibt HUMAN_REQUIRED zurück.
- * Task .09 erweitert diese Funktion um ntfy-Benachrichtigung und Resume-Logik.
- * Die State-Datei (.pi/orchestrator-state.json) ist der Verbindungspunkt.
+ * Sendet eine ntfy-Benachrichtigung via uv run send-ntfy.py --stdin (best-effort).
+ * Message wird via stdin übergeben (--stdin Flag) — keine Newline-Probleme in spawn-Args.
+ * Fehler crashen die Pipeline NICHT — werden nur geloggt.
+ * Der Token wird NIE im Code, NIE in Logs ausgegeben.
+ * Gibt { sent: boolean, error?: string } zurück.
+ *
+ * F5-Fix: settled-Guard + clearTimeout verhindert Timer-Leak und Double-Resolve.
+ * F6-Fix: kein hardcodierter Username-Fallback; wenn HOME unset oder Skript fehlt → skip.
  */
-function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string): string {
+function sendNtfy(
+  title: string,
+  message: string,
+  priority: "default" | "high" | "max" = "high",
+  tags: string = "bell,robot",
+): Promise<{ sent: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    // F6: HOME muss gesetzt sein; kein hardcodierter Fallback-Username.
+    const home = process.env.HOME;
+    if (!home) {
+      console.error("[cc-orchestrator] ntfy skipped: HOME env not set, sender not found");
+      resolve({ sent: false, error: "ntfy skipped: HOME env not set" });
+      return;
+    }
+    const scriptPath = `${home}/.claude/skills/ntfy/scripts/send-ntfy.py`;
+    if (!existsSync(scriptPath)) {
+      console.error(`[cc-orchestrator] ntfy skipped: sender not found at expected path`);
+      resolve({ sent: false, error: "ntfy skipped: sender not found" });
+      return;
+    }
+
+    // F5: settled-Guard verhindert Double-Resolve nach Timeout + close.
+    let settled = false;
+    const done = (result: { sent: boolean; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const args = [
+      "run",
+      scriptPath,
+      title,          // positional: title
+      "--stdin",      // message kommt via stdin
+      "--topic", NTFY_TOPIC,
+      "--tags", tags,
+      "--priority", priority,
+    ];
+
+    const proc = spawn("uv", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+
+    let stderr = "";
+
+    proc.stdout!.setEncoding("utf-8");
+    // stdout wird nicht geloggt (könnte Confirmation-Details enthalten)
+
+    proc.stderr!.setEncoding("utf-8");
+    proc.stderr!.on("data", (chunk: string) => { stderr += chunk; });
+
+    proc.stdin!.end(message, "utf-8");
+
+    proc.on("close", (code: number | null) => {
+      if (code === 0) {
+        console.error(`[cc-orchestrator] ntfy sent (exit 0): ${title}`);
+        done({ sent: true });
+      } else {
+        // stderr NICHT vollständig loggen — könnte Auth-Details enthalten.
+        const safe = stderr.replace(/tk_[A-Za-z0-9]+/g, "<redacted>").slice(0, 200);
+        const errMsg = `uv exit=${code} stderr=${safe}`;
+        console.error(`[cc-orchestrator] ntfy FAILED (best-effort, pipeline continues): ${errMsg}`);
+        done({ sent: false, error: errMsg });
+      }
+    });
+
+    proc.on("error", (err: Error) => {
+      console.error(`[cc-orchestrator] ntfy spawn error (best-effort, pipeline continues): ${err.message}`);
+      done({ sent: false, error: `spawn: ${err.message}` });
+    });
+
+    // F5: Timer-Referenz gespeichert → clearTimeout in done() verhindert Leak.
+    // Timeout: 15s — uv braucht beim ersten Lauf ggf. einen Moment für venv.
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      done({ sent: false, error: "ntfy timeout after 15s" });
+    }, 15_000);
+  });
+}
+
+// ── Resume-Naht: wie gibt der Mensch frei? ────────────────────────────────────
+//
+// Einfache, YAGNI-konforme Resume-Mechanik:
+//   1. Orchestrator pausiert → schreibt .pi/orchestrator-state.json (status: "waiting_for_human")
+//   2. Mensch prüft den State + den Spec-Output
+//   3. Mensch erstellt .pi/orchestrator-resume (Datei-Flag):
+//        touch .pi/orchestrator-resume           → weiter (approved)
+//        touch .pi/orchestrator-resume-cancel    → abbrechen
+//   4. Beim nächsten pi-Start (oder wenn die Pipeline nach requestHuman
+//      weiterlaufen soll): checkResumeState() prüft die Flagge
+//
+// Kein interaktiver Daemon nötig — YAGNI. Die nächste pi-Invocation
+// liest den letzten State und die Resume-Flagge.
+
+/**
+ * Prüft ob eine Resume-Freigabe vorliegt.
+ * Gibt "approved", "cancelled" oder "waiting" zurück.
+ * Räumt die Resume-Flagge auf (einmalig lesen → löschen).
+ */
+function checkResumeState(repoRoot: string): "approved" | "cancelled" | "waiting" {
+  const resumeFile = join(repoRoot, ".pi", "orchestrator-resume");
+  const cancelFile = join(repoRoot, ".pi", "orchestrator-resume-cancel");
+
+  if (existsSync(cancelFile)) {
+    try { unlinkSync(cancelFile); } catch { /* best-effort */ }
+    return "cancelled";
+  }
+
+  if (existsSync(resumeFile)) {
+    try { unlinkSync(resumeFile); } catch { /* best-effort */ }
+    return "approved";
+  }
+
+  return "waiting";
+}
+
+// ── requestHuman — Task .09: Pause/Resume/ntfy ──────────────────────────────
+
+/**
+ * Pausiert die Pipeline, persistiert den Zustand in .pi/orchestrator-state.json,
+ * und sendet eine ntfy-Benachrichtigung (best-effort).
+ *
+ * Rückgabe: "HUMAN_REQUIRED/PAUSED: <reason>" — der Dispatcher DARF danach
+ * KEINE weiteren Pipeline-Schritte ausführen (builder-Dispatch, mark_done, etc.).
+ *
+ * Resume-Mechanik:
+ *   touch .pi/orchestrator-resume         → nächster pi-Start fährt fort
+ *   touch .pi/orchestrator-resume-cancel  → nächster pi-Start bricht ab
+ *
+ * @param repoRoot   Repo-Wurzel (aus ctx.cwd)
+ * @param taskId     Aktuelle Task-ID oder null
+ * @param phase      Pipeline-Phase (z.B. "GATE0_SPEC", "GATE1_RETRIES", "CAP_EXCEEDED")
+ * @param reason     Menschenlesbarer Grund
+ */
+async function requestHuman(repoRoot: string, taskId: string | null, phase: string, reason: string): Promise<string> {
   const stateFile = join(repoRoot, ".pi", "orchestrator-state.json");
   const piDir = join(repoRoot, ".pi");
   if (!existsSync(piDir)) {
@@ -244,17 +537,40 @@ function requestHuman(repoRoot: string, taskId: string | null, phase: string, re
     phase,
     reason,
     ts: new Date().toISOString(),
-    status: "waiting_for_human", // Task .09 setzt → "resumed" oder "cancelled"
+    status: "waiting_for_human",
+    resume_instructions: [
+      "To approve/continue: touch .pi/orchestrator-resume",
+      "To cancel:          touch .pi/orchestrator-resume-cancel",
+      "Then re-run: pi --provider ollama --model gemma4:12b-mlx -e .pi/extensions/damage-control.ts -e .pi/extensions/cc-orchestrator.ts --no-builtin-tools -p 'Resume pipeline'",
+    ],
   };
 
+  let stateWritten = false;
   try {
     writeFileSync(stateFile, JSON.stringify(state, null, 2), "utf-8");
+    stateWritten = true;
   } catch (e) {
-    // State-Write-Fehler ist nicht fatal — Hauptsache die Rückgabe ist klar
     console.error(`[cc-orchestrator] Warning: could not write state file: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  return `HUMAN_REQUIRED: ${reason} | task=${taskId ?? "unknown"} phase=${phase} | state written to .pi/orchestrator-state.json`;
+  // ntfy — best-effort. Titel: nur ASCII (em-dash in spawn-Args verursacht Encoding-Probleme).
+  const ntfyTitle = `Orchestrator PAUSED -- ${phase}`;
+  const ntfyMessage = [
+    `**Task:** ${taskId ?? "unknown"}`,
+    `**Phase:** ${phase}`,
+    `**Reason:** ${reason}`,
+    "",
+    "**Resume:**",
+    "```",
+    `touch .pi/orchestrator-resume`,
+    "```",
+    `State file: ${stateWritten ? ".pi/orchestrator-state.json (written)" : "WRITE FAILED"}`,
+  ].join("\n");
+
+  // Wir awaiten ntfy, aber sein Fehler stoppt nie die Pipeline
+  await sendNtfy(ntfyTitle, ntfyMessage, "high", "pause_button,robot");
+
+  return `HUMAN_REQUIRED/PAUSED: ${reason} | task=${taskId ?? "unknown"} phase=${phase} | state=${stateWritten ? "written" : "ERROR"} | resume: touch .pi/orchestrator-resume`;
 }
 
 // ── Extension ─────────────────────────────────────────────────────────────────
@@ -272,6 +588,11 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
 
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      // F3: Caps-State pro Task zurücksetzen (hier = Anfang von PICK, nicht session_start).
+      // session_start setzt initial; dieser Reset stellt sicher, dass bei mehreren
+      // Tasks pro Session devRetries/totalCostUsd nicht über Task-Grenzen akkumulieren.
+      resetCapsState();
+
       const r = await runBacklogScript(repoRoot, ["next"]);
 
       if (r.exitCode !== 0) {
@@ -347,6 +668,15 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, onUpdate, _ctx) {
       const { role, prompt } = params as { role: string; prompt: string };
 
+      // Pre-Check: Kill-Switch + Caps vor jedem Worker-Dispatch
+      const precheckErr = precheck(repoRoot);
+      if (precheckErr) {
+        return {
+          content: [{ type: "text", text: `BLOCKED: ${precheckErr}` }],
+          details: { role, is_error: true, blocked: precheckErr },
+        };
+      }
+
       const validRoles = ["planner", "builder", "reviewer"];
       if (!validRoles.includes(role)) {
         return {
@@ -362,18 +692,67 @@ export default function (pi: ExtensionAPI) {
         });
       }
 
-      const result = await spawnDispatchWorker(repoRoot, role, prompt);
+      // Live-stderr-Zeilen per onUpdate ins pi-TUI surfacen (AC#3).
+      // Jede Zeile aus cc-dispatch.ts stderr ([assistant]/[result]/[system])
+      // wird akkumuliert und als partielles Update an pi weitergereicht.
+      // Das finale Tool-Result bleibt das geparste stdout-JSON (Contract unverändert).
+      let liveLines: string[] = [];
+      const onChunk = onUpdate
+        ? (line: string) => {
+            liveLines.push(line);
+            // Zeige immer nur die letzten 20 Zeilen (kein unbegrenztes Wachstum)
+            if (liveLines.length > 20) { liveLines = liveLines.slice(-20); }
+            onUpdate({
+              content: [{ type: "text", text: liveLines.join("\n") }],
+              details: { role, status: "running" },
+            });
+          }
+        : undefined;
+
+      // Leite CAPS.MAX_WALL_CLOCK_PER_TASK als Worker-Timeout durch.
+      const result = await spawnDispatchWorker(repoRoot, role, prompt, undefined, CAPS.MAX_WALL_CLOCK_PER_TASK, onChunk);
+
+      // ── Caps-Enforcement: Zaehler deterministisch im Code hochzaehlen ────────
+      // Semantik:
+      //   devRetries    — jeder builder-Dispatch (inkl. Erst-Build) wird gezaehlt.
+      //                   Cap greift ab dem (MAX_DEV_RETRIES+1)ten builder-Aufruf.
+      //   reviewRetries — jeder reviewer-Dispatch (inkl. Erst-Review) wird gezaehlt.
+      //                   Cap greift ab dem (MAX_REVIEW_RETRIES+1)ten Aufruf.
+      // KEIN Modell-seitiges Zaehlen — der Code ist alleinige Quelle.
+      if (role === "builder") {
+        capsState.devRetries += 1;
+      } else if (role === "reviewer") {
+        capsState.reviewRetries += 1;
+      }
+      capsState.totalCostUsd += result.total_cost_usd || 0;
+
+      // Post-Call Cap-Check: Zaehler oder Kostenlimit koennte jetzt ueberschritten sein.
+      const postErr = checkCaps();
+      if (postErr) {
+        const humanMsg = await requestHuman(
+          repoRoot,
+          null,
+          "CAP_EXCEEDED",
+          `Cap exceeded after ${role} worker: ${postErr}`
+        );
+        return {
+          content: [{ type: "text", text: `CAP EXCEEDED — intervention required.\n${humanMsg}\n\nWorker output was:\n${result.result.slice(0, 2000)}` }],
+          details: { role, ...result, cap_exceeded: postErr, intervention: true },
+        };
+      }
+
       const status = result.is_error ? "error" : "done";
       const cost = result.total_cost_usd.toFixed(4);
+      const accumulated = capsState.totalCostUsd.toFixed(4);
 
-      const summary = `[${role}] ${status} | turns=${result.num_turns} cost=$${cost}`;
+      const summary = `[${role}] ${status} | turns=${result.num_turns} cost=$${cost} (total=$${accumulated})`;
       const truncated = result.result.length > 6000
         ? result.result.slice(0, 6000) + "\n\n... [truncated]"
         : result.result;
 
       return {
         content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
-        details: { role, ...result },
+        details: { role, ...result, caps: { ...capsState } },
       };
     },
   });
@@ -388,6 +767,15 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
 
     async execute(_toolCallId, _params, _signal, onUpdate, _ctx) {
+      // Pre-Check: Kill-Switch + Caps
+      const precheckErr = precheck(repoRoot);
+      if (precheckErr) {
+        return {
+          content: [{ type: "text", text: `BLOCKED: ${precheckErr}` }],
+          details: { pass: false, failed: ["precheck-blocked"], log: precheckErr },
+        };
+      }
+
       if (onUpdate) {
         onUpdate({
           content: [{ type: "text", text: "Running gates (just test + go-build)..." }],
@@ -426,7 +814,7 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { task_id, phase, reason } = params as { task_id?: string; phase: string; reason: string };
-      const message = requestHuman(repoRoot, task_id ?? null, phase, reason);
+      const message = await requestHuman(repoRoot, task_id ?? null, phase, reason);
 
       return {
         content: [{ type: "text", text: message }],
@@ -459,42 +847,75 @@ export default function (pi: ExtensionAPI) {
         final_summary?: string;
       };
 
-      const errors: string[] = [];
+      // CRITICAL: mark_done NEVER proceeds if Kill-Switch or any Cap is active.
+      // "Status bleibt In Progress, NICHT Done" — AC#2 Enforcement.
+      const precheckErr = precheck(repoRoot);
+      if (precheckErr) {
+        return {
+          content: [{ type: "text", text: `mark_done ${id} BLOCKED — caps/kill-switch active. Task stays In Progress, NOT Done.\nReason: ${precheckErr}` }],
+          details: { id, done_set: false, blocked: precheckErr, exitCode: 1 },
+        };
+      }
 
-      // 1. AC-Indizes setzen (falls angegeben)
+      // G3 FIX: Gate-Pass ist Pflicht vor Done.
+      // Das LLM soll laut System-Prompt run_gates vor mark_done aufrufen, aber nichts
+      // erzwingt es im Code. Hier wird sichergestellt, dass die Gates IMMER code-seitig
+      // grün sind, bevor Status=Done gesetzt wird — unabhaengig davon, ob run_gates
+      // zuvor im Gespraech aufgerufen wurde.
+      const gateResult = await runGatesScript(repoRoot);
+      if (!gateResult.pass) {
+        const failedList = gateResult.failed.join(", ");
+        return {
+          content: [{
+            type: "text",
+            text: `mark_done ${id} BLOCKED — gates are RED. Done NOT set. Fix the failing gates first, then retry.\nFailed: ${failedList}\nLog: ${gateResult.log}`,
+          }],
+          details: { id, done_set: false, gate_pass: false, failed_gates: gateResult.failed, gate_log: gateResult.log, exitCode: 1 },
+        };
+      }
+
+      const prereqErrors: string[] = [];
+
+      // 1. AC-Indizes setzen (falls angegeben) — Voraussetzung für Done
       if (ac_indices && ac_indices.length > 0) {
         for (const idx of ac_indices) {
           const r = await runBacklogScript(repoRoot, ["check-ac", id, String(idx)]);
           if (r.exitCode !== 0) {
-            errors.push(`check-ac ${idx}: ${r.stderr || r.stdout}`);
+            prereqErrors.push(`check-ac ${idx}: ${r.stderr || r.stdout}`);
           }
         }
       }
 
-      // 2. Final Summary setzen (falls angegeben)
+      // 2. Final Summary setzen (falls angegeben) — Voraussetzung für Done
       if (final_summary && final_summary.trim()) {
         const r = await runBacklogScript(repoRoot, ["final-summary", id, final_summary]);
         if (r.exitCode !== 0) {
-          errors.push(`final-summary: ${r.stderr || r.stdout}`);
+          prereqErrors.push(`final-summary: ${r.stderr || r.stdout}`);
         }
       }
 
-      // 3. Status → Done
-      const r = await runBacklogScript(repoRoot, ["set", id, "Done"]);
-      if (r.exitCode !== 0) {
-        errors.push(`set Done: ${r.stderr || r.stdout}`);
+      // Fix F2: Done NUR setzen wenn check-ac + final-summary erfolgreich.
+      // Bei Voraussetzungsfehlern: KEIN Done, klarer Fehler ohne widersprüchliches
+      // "Done aber exitCode:1".
+      if (prereqErrors.length > 0) {
+        return {
+          content: [{ type: "text", text: `mark_done ${id} — prerequisites failed, Done NOT set:\n${prereqErrors.join("\n")}` }],
+          details: { id, errors: prereqErrors, done_set: false, exitCode: 1 },
+        };
       }
 
-      if (errors.length > 0) {
+      // 3. Status → Done (nur nach erfolgreichen Voraussetzungen)
+      const doneResult = await runBacklogScript(repoRoot, ["set", id, "Done"]);
+      if (doneResult.exitCode !== 0) {
         return {
-          content: [{ type: "text", text: `mark_done ${id} — partial errors:\n${errors.join("\n")}` }],
-          details: { id, errors, exitCode: 1 },
+          content: [{ type: "text", text: `mark_done ${id} — set Done failed: ${doneResult.stderr || doneResult.stdout}` }],
+          details: { id, errors: [`set Done: ${doneResult.stderr || doneResult.stdout}`], done_set: false, exitCode: 1 },
         };
       }
 
       return {
         content: [{ type: "text", text: `Task ${id} marked as Done. No git push performed (human merge required).` }],
-        details: { id, ac_indices, has_summary: Boolean(final_summary), exitCode: 0 },
+        details: { id, ac_indices, has_summary: Boolean(final_summary), done_set: true, exitCode: 0 },
       };
     },
   });
@@ -524,13 +945,18 @@ STEP 1 — PICK
 
 STEP 2 — SPEC
   Call: dispatch_worker(role="planner", prompt="<task-id>: <task-title>. Analyze this task and produce: numbered implementation plan, sharpened AC, files to change, risks.")
-  If planner output contains "OPEN QUESTION:":
-    Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Planner has open question: <question>")
-    STOP and wait. Do not proceed until human resolves.
+  CRITICAL — check planner output BEFORE anything else:
+  If planner output contains the literal string "OPEN QUESTION":
+    Extract the full OPEN QUESTION text (everything after "OPEN QUESTION:").
+    Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Planner open question (answer before spec approval): <extracted question>")
+    STOP immediately. Do NOT proceed to STEP 3 or any further step.
+    (The human must answer the question and re-run the pipeline with their answer.)
 
-STEP 3 — GATE₀ (Spec Gate — Human Approval)
-  Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Spec ready for human approval. Plan: <summary>")
-  STOP. Do not proceed to DEV until human explicitly says "approved" or "go".
+STEP 3 — GATE₀ (Spec Gate — Human Approval MANDATORY)
+  This step is NON-OPTIONAL. ALWAYS call request_human here, even if the plan looks good.
+  Call: request_human(task_id=<id>, phase="GATE0_SPEC", reason="Spec ready for human approval. Plan summary: <first 2 lines of planner output>")
+  STOP. Do NOT call dispatch_worker(builder) until the human says "approved" or you see .pi/orchestrator-resume.
+  This gate exists because: Human-Oversight-Pflicht (Org-Regel) requires human spec approval before code is written.
 
 STEP 4 — DEV (repeat up to MAX_DEV_RETRIES times if gates fail)
   Call: dispatch_worker(role="builder", prompt="<approved-plan>. Implement exactly this plan. Task: <id>.")
@@ -559,13 +985,24 @@ STEP 6 — DONE
   Call: mark_done(id=<id>, ac_indices=[1,2,...], final_summary="<reviewer summary>")
   Report: "Task <id> complete. Awaiting human push/merge to main."
 
+RESUME PROTOCOL:
+  When you see ".pi/orchestrator-resume exists" in your prompt or context:
+  - The human has approved. Continue from the NEXT step after the last GATE₀/intervention.
+  - Read .pi/orchestrator-state.json to find: task_id, phase, reason.
+  - If phase is "GATE0_SPEC": proceed to STEP 4 (DEV) with the previously planned spec.
+  - If phase is "GATE1_RETRIES" or "REVIEW_RETRIES": call request_human again with update, then STOP.
+  - If .pi/orchestrator-resume-cancel exists: STOP, report "Cancelled by human."
+
 RULES (non-negotiable):
 - Call tools in STEP ORDER only. Never skip a step.
+- GATE₀ (STEP 3) is MANDATORY — never skip it, never go from SPEC directly to DEV.
+- OPEN QUESTION in planner output → request_human immediately, do NOT proceed.
 - You have NO code tools (no read, write, edit, bash). Never attempt to use them.
 - Never mark Done if gates FAIL or reviewer REJECTED.
 - Never git push. Push and merge are HUMAN actions only.
 - If uncertain about anything: call request_human, not improvise.
 - Dev ≠ Review: builder and reviewer are always separate worker dispatches (different sessions — Org-Compliance).
+- intervention (Cap exceeded, retries exhausted) → request_human → STOP. Never set Done.
 `,
     };
   });
@@ -573,7 +1010,13 @@ RULES (non-negotiable):
   // ── Session Start ──────────────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
-    repoRoot = ctx.cwd || resolve(new URL("../..", import.meta.url).pathname);
+    // F4: harter Fehler bei leerem ctx.cwd — import.meta.url-Fallback ist in pi's
+    // jiti-Runtime unzuverlaessig und wuerde Lock/Kill/State an falschem Pfad ablegen.
+    if (!ctx.cwd) {
+      console.error("[cc-orchestrator] FATAL: ctx.cwd is empty — cannot determine repo root. Exiting.");
+      process.exit(1);
+    }
+    repoRoot = ctx.cwd;
 
     // Sicherstellen dass .pi/ existiert
     const piDir = join(repoRoot, ".pi");
@@ -581,7 +1024,46 @@ RULES (non-negotiable):
       mkdirSync(piDir, { recursive: true });
     }
 
-    // Tool-Lock: NUR die 6 Orchestrator-Tools — keine Code-Tools für pi
+    // ── Kill-Switch Pre-Placement pruefen ─────────────────────────────────────
+    // Konvention: .pi/orchestrator.kill anlegen = Start verhindern.
+    //             Datei entfernen = naechster Start laeuft durch.
+    // Wenn die Datei VOR dem Start existiert, ist das ein bewusster Operator-Stop —
+    // NICHT loeschen, NICHT starten. Lock noch nicht gehalten → kein releaseLock noetig.
+    const killFile = join(repoRoot, ".pi", "orchestrator.kill");
+    if (existsSync(killFile)) {
+      const msg = `[cc-orchestrator] KILL_SWITCH: .pi/orchestrator.kill exists — start aborted by operator. Remove the file to allow startup.`;
+      console.error(msg);
+      ctx.ui.notify(msg);
+      process.exit(1);
+    }
+
+    // ── Single-Flight Lock ─────────────────────────────────────────────────
+    const lockResult = acquireLock(repoRoot);
+    if (!lockResult.acquired) {
+      // Klare Meldung, kein Doppel-Worker starten
+      ctx.ui.notify(`SINGLE_FLIGHT_LOCK: ${lockResult.message}`);
+      console.error(`[cc-orchestrator] ${lockResult.message}`);
+      // Prozess sauber beenden — kein Tool wird registriert
+      process.exit(1);
+    }
+
+    // Caps-State zuruecksetzen
+    resetCapsState();
+
+    // ── SIGINT / Kill-Switch SIGTERM Handler ───────────────────────────────
+    // Sauberer Abbruch: Lock freigeben, keine Done-Markierung.
+    const _onSignal = () => {
+      console.error("\n[cc-orchestrator] Signal received — releasing lock, pipeline aborted (no Done set).");
+      releaseLock(repoRoot);
+      process.exit(130);
+    };
+    process.once("SIGINT", _onSignal);
+    process.once("SIGTERM", _onSignal);
+
+    // Lock beim normalen Prozessende freigeben
+    process.once("exit", () => { releaseLock(repoRoot); });
+
+    // ── Tool-Lock: NUR die 6 Orchestrator-Tools — keine Code-Tools für pi ──
     pi.setActiveTools([
       "backlog_next",
       "backlog_set",
@@ -593,10 +1075,33 @@ RULES (non-negotiable):
 
     ctx.ui.setStatus("cc-orchestrator", "ready");
 
+    // ── Resume-State prüfen beim Start ────────────────────────────────────────
+    // F2: "cancelled" bricht die Pipeline tatsächlich ab (releaseLock + exit).
+    // "approved" und "waiting" laufen durch — der Dispatcher bekommt die Notice.
+    const existingStateFile = join(repoRoot, ".pi", "orchestrator-state.json");
+    let resumeNotice = "";
+    if (existsSync(existingStateFile)) {
+      const resumeStatus = checkResumeState(repoRoot);
+      if (resumeStatus === "cancelled") {
+        // F2: Cancel enforced — Lock freigeben, dann sauber beenden.
+        const cancelMsg = "[cc-orchestrator] RESUME-CANCEL: .pi/orchestrator-resume-cancel was set — pipeline cancelled by human. Exiting cleanly.";
+        console.error(cancelMsg);
+        ctx.ui.notify(cancelMsg);
+        releaseLock(repoRoot);
+        process.exit(0);
+      } else if (resumeStatus === "approved") {
+        resumeNotice = "\nRESUME: .pi/orchestrator-resume flag found — human approved. Pipeline will continue from last paused phase.";
+      } else {
+        resumeNotice = "\nWARNING: .pi/orchestrator-state.json exists with status=waiting_for_human. Create .pi/orchestrator-resume to approve or .pi/orchestrator-resume-cancel to cancel.";
+      }
+    }
+
     ctx.ui.notify(
       [
         "cc-setup Orchestrator ready",
         `Repo: ${repoRoot}`,
+        `Lock: PID ${process.pid} (.pi/orchestrator.lock)`,
+        resumeNotice,
         "",
         "Active tools (ONLY these 6 — no code tools):",
         "  backlog_next   — PICK next To Do task",
@@ -606,13 +1111,27 @@ RULES (non-negotiable):
         "  request_human  — request human intervention (GATE₀, caps, OPEN QUESTIONs)",
         "  mark_done      — mark task Done in backlog (no git push)",
         "",
-        "pi-Invocation (default model):",
+        "Human-Gate / Resume:",
+        "  After PAUSED: touch .pi/orchestrator-resume         → approve/continue",
+        "                touch .pi/orchestrator-resume-cancel  → cancel pipeline",
+        "  ntfy: https://ntfy.niclasedge.com/info (push notification sent on pause)",
+        "",
+        "Safety (Task .08):",
+        `  MAX_DEV_RETRIES      = ${CAPS.MAX_DEV_RETRIES}`,
+        `  MAX_REVIEW_RETRIES   = ${CAPS.MAX_REVIEW_RETRIES}`,
+        `  MAX_COST_USD_PER_TASK= $${CAPS.MAX_COST_USD_PER_TASK}`,
+        `  MAX_WALL_CLOCK_SECS  = ${CAPS.MAX_WALL_CLOCK_PER_TASK}`,
+        "  Kill-Switch: touch .pi/orchestrator.kill (aborts pipeline cleanly)",
+        "",
+        "pi-Invocation (beide Extensions — damage-control + orchestrator):",
         "  pi --provider ollama --model gemma4:12b-mlx \\",
+        "     -e .pi/extensions/damage-control.ts \\",
         "     -e .pi/extensions/cc-orchestrator.ts \\",
         "     --no-builtin-tools -p 'Start orchestrator pipeline'",
         "",
         "Robuster (besseres Tool-Calling):",
         "  pi --provider ollama --model gemma4-tool \\",
+        "     -e .pi/extensions/damage-control.ts \\",
         "     -e .pi/extensions/cc-orchestrator.ts \\",
         "     --no-builtin-tools -p 'Start orchestrator pipeline'",
       ].join("\n"),

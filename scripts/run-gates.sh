@@ -14,6 +14,13 @@
 
 set -euo pipefail
 
+# PATH-Erweiterung: In non-login Subshells (pi-Orchestrator, CI) fehlen oft die
+# Homebrew- und User-Bins. Wir fuegen die ueblichen Pfade vorne ein, damit
+# just/deno/jq/redactor gefunden werden, ohne den System-PATH zu ueberschreiben.
+# Bereits enthaltene Pfade werden von der Shell automatisch dedupliziert (PATH-Semantik:
+# erster Treffer gewinnt, Duplikate schaden nicht).
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.cargo/bin:${HOME}/.local/bin:${HOME}/.bun/bin:${HOME}/.deno/bin:${PATH:-}"
+
 # F5: Dependency-Guard — fehlt eine Pflicht-Binary, sofort mit Fehler-JSON abbrechen.
 for _dep in jq redactor just; do
     if ! command -v "${_dep}" >/dev/null 2>&1; then
@@ -74,13 +81,21 @@ for gate_entry in "${GATES[@]}"; do
 
     log "--- Gate: ${gate_name} | cmd: ${gate_cmd} ---"
 
-    # F3: REPO_ROOT quote-sicher einbetten via printf %q (verhindert Wortspaltung
-    # und Glob-Expansion bei Pfaden mit Leerzeichen oder Sonderzeichen).
+    # Gate-Commands werden als Positionsparameter uebergeben (bash -c '"$@"' _ word…),
+    # nicht via String-Interpolation. Das verhindert Quoting-Bugs durch printf %q:
+    # "just test" bleibt zwei separate Argumente (just + test) statt einem
+    # zusammengezogenen Token "just\ test". REPO_ROOT wird via printf %q abgesichert
+    # (Pfade mit Leerzeichen) und nur fuer das cd-Prefix verwendet.
+    # Statische, kontrollierte Gate-Strings aus dem GATES-Array — kein nutzer-supplied Input.
     _safe_root="$(printf '%q' "${REPO_ROOT}")"
+    # gate_cmd in Positionsparameter aufsplitten (IFS-Split auf Leerzeichen — ausreichend
+    # fuer die statischen "just <subcmd>"-Strings; kein Glob/Quoting-Problem moeglich).
+    # shellcheck disable=SC2086
+    read -r -a _gate_args <<< "${gate_cmd}"
 
     # Sub-Command via redactor wrap -- (Org-Compliance: Strict Mode).
     # stdout+stderr landen in der Logdatei — stdout bleibt sauber fuer JSON.
-    if redactor wrap -- bash -c "cd ${_safe_root} && ${gate_cmd}" >> "${LOG_FILE}" 2>&1; then
+    if redactor wrap -- bash -c "cd ${_safe_root} && "'"$@"' _ "${_gate_args[@]}" >> "${LOG_FILE}" 2>&1; then
         log "[${gate_name}] PASS"
     else
         # F1: erst FAILED_GATES befuellen, dann loggen — verhindert Datenverlust
@@ -106,12 +121,14 @@ for gate_name in "${FAILED_GATES[@]+"${FAILED_GATES[@]}"}"; do
     failed_json="$(printf '%s' "${failed_json}" | jq --arg g "${gate_name}" '. + [$g]')"
 done
 
-# Einzige regulaere Ausgabe auf stdout: valides JSON-Objekt.
+# F4: _JSON_EMITTED VOR dem jq-Aufruf setzen — verhindert, dass bei jq-Fehler
+# der EXIT-Trap ein zweites JSON auf stdout emittiert. Wenn jq selbst fehlschlaegt
+# (z.B. kaputtes failed_json), faengt das || ab und gibt ein sicheres Fallback-JSON.
+# So landet IMMER genau ein JSON auf stdout.
+_JSON_EMITTED=1
 jq -n \
     --argjson pass "${pass_val}" \
     --argjson failed "${failed_json}" \
     --arg log "${LOG_FILE}" \
-    '{"pass": $pass, "failed": $failed, "log": $log}'
-
-# Normales Ende erreicht — Trap darf kein Fallback-JSON mehr ausgeben.
-_JSON_EMITTED=1
+    '{"pass": $pass, "failed": $failed, "log": $log}' \
+    || jq -n --arg log "${LOG_FILE}" '{"pass":false,"failed":["jq-render-error"],"log":$log}'

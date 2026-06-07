@@ -82,3 +82,35 @@ deno-test:
 test:
     cd scripts && uv run --with pytest --with pyyaml pytest test_sprint_bridge.py test_session_analyze.py test_session_waste.py test_context_resolve.py -v
     cd deno-knowledge-app && deno task test
+
+# Startet den pi-Orchestrator-Dispatcher (lokales Ollama-Modell) mit beiden Extensions.
+# Der Dispatcher sequenziert die Pipeline PICK→SPEC→Gate→DEV→GATE→REVIEW→DONE.
+# Intelligenzlastige Schritte (planner/builder/reviewer) werden an claude -p Worker delegiert.
+#
+# Voraussetzungen:
+#   - pi auf $PATH (github.com/earendil-works/pi)
+#   - Ollama läuft lokal mit Modell gemma4:12b-mlx
+#   - ANTHROPIC_API_KEY gesetzt (für claude -p Worker)
+#   - bun, just, jq auf $PATH
+#
+# Optionales Argument task-id: wird als Kontext-Hinweis an den Dispatcher übergeben.
+# Ohne Argument startet der Dispatcher und wählt selbst den nächsten "To Do"-Task.
+#
+# Human-Gates:
+#   Spec-Gate:  touch .pi/orchestrator-resume         (approve)
+#               touch .pi/orchestrator-resume-cancel  (cancel)
+#   Kill-Switch: touch .pi/orchestrator.kill          (sofortiger Abbruch)
+orchestrate task-id="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    prompt="Start orchestrator pipeline"
+    if [[ -n "{{task-id}}" ]]; then
+        prompt="Start orchestrator pipeline for task {{task-id}}"
+    fi
+    exec pi \
+        --provider ollama \
+        --model gemma4:12b-mlx \
+        -e .pi/extensions/damage-control.ts \
+        -e .pi/extensions/cc-orchestrator.ts \
+        --no-builtin-tools \
+        -p "$prompt"

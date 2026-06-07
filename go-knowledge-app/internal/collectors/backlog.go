@@ -42,7 +42,8 @@ func contains(s []string, v string) bool {
 	return false
 }
 
-// TaskRecord mirrors the TS TaskRecord interface (JSON keys are byte-identical).
+// TaskRecord mirrors the TS TaskRecord interface plus a file mtime (epoch
+// seconds) used to sort the board columns newest-first.
 type TaskRecord struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -51,6 +52,7 @@ type TaskRecord struct {
 	Parent    string `json:"parent"`
 	Desc      string `json:"desc"`
 	File      string `json:"file"`
+	Mtime     int    `json:"mtime"`
 }
 
 var sectionRe = regexp.MustCompile(`(?s)SECTION:DESCRIPTION:BEGIN\s*-->\s*(.*?)\s*<!--\s*SECTION:DESCRIPTION:END`)
@@ -106,6 +108,7 @@ func parseTaskFile(fpath, filename string) (TaskRecord, bool) {
 		Parent:    md.FrontmatterField(text, "parent_task_id"),
 		Desc:      sliceRunes(taskDescription(text), 2000),
 		File:      filename,
+		Mtime:     mtimeSeconds(fpath),
 	}, true
 }
 

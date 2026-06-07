@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gated Agentic Workflow · PRD-019</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-raised: #161b22;
+    --bg-inset: #0a0e13;
+    --line: #21262d;
+    --line-bright: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --text-faint: #6e7681;
+    --accent: #ff5630;
+    --accent-soft: rgba(255, 86, 48, 0.12);
+    --green: #3fb950;
+    --green-soft: rgba(63, 185, 80, 0.12);
+    --amber: #d29922;
+    --amber-soft: rgba(210, 153, 34, 0.12);
+    --red: #f85149;
+    --red-soft: rgba(248, 81, 73, 0.1);
+    --purple: #a371f7;
+    --blue: #58a6ff;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(255,86,48,0.05), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(88,166,255,0.04), transparent 40%);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 24px 120px;
+  }
+
+  .wrap { max-width: 960px; margin: 0 auto; }
+
+  /* ---------- Header ---------- */
+  header {
+    padding: 72px 0 48px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 64px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 28px; height: 1px;
+    background: var(--accent);
+  }
+  h1 {
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.05;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+  }
+  h1 .gt { color: var(--text-faint); font-weight: 400; }
+  .lede {
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 640px;
+  }
+  .principle {
+    margin-top: 32px;
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--text);
+    border-left: 2px solid var(--accent);
+    padding: 6px 0 6px 18px;
+    background: var(--accent-soft);
+    border-radius: 0 6px 6px 0;
+  }
+
+  /* ---------- Diagram nav pills ---------- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin: 0 0 40px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .legend span { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+  /* ---------- Section scaffold ---------- */
+  section { margin-bottom: 80px; scroll-margin-top: 24px; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px; }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  h2 {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .sec-sub {
+    color: var(--text-dim);
+    margin: 4px 0 28px 0;
+    padding-left: 0;
+    max-width: 680px;
+  }
+
+  /* ---------- Cards ---------- */
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+
+  .card {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+    transition: border-color .2s, transform .2s;
+  }
+  .card:hover { border-color: var(--line-bright); }
+  .card h3 {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-weight: 500;
+  }
+  .tag.adr { color: var(--purple); background: rgba(163,113,247,0.13); }
+  .tag.prd { color: var(--blue); background: rgba(88,166,255,0.13); }
+  .tag.bdd { color: var(--green); background: var(--green-soft); }
+  .tag.ds  { color: var(--amber); background: var(--amber-soft); }
+  .card p { font-size: 14.5px; color: var(--text-dim); }
+  .card p strong { color: var(--text); font-weight: 600; }
+
+  /* ---------- Code blocks ---------- */
+  .code {
+    background: var(--bg-inset);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin: 20px 0;
+  }
+  .code-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-faint);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+  }
+  .code-bar .d { width: 10px; height: 10px; border-radius: 50%; }
+  .code-body { padding: 16px 18px; color: var(--text); white-space: pre; }
+  .c-key { color: var(--accent); }
+  .c-str { color: var(--green); }
+  .c-com { color: var(--text-faint); font-style: italic; }
+  .c-kw  { color: var(--purple); }
+  .c-fn  { color: var(--blue); }
+
+  /* ---------- The loop / flow ---------- */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-top: 8px;
+  }
+  .stage {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    position: relative;
+  }
+  .stage .ico {
+    width: 38px; height: 38px;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .stage .body { flex: 1; }
+  .stage .body h4 { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .stage .body span { font-size: 13.5px; color: var(--text-dim); }
+  .connector {
+    width: 2px; height: 26px;
+    background: var(--line-bright);
+    margin-left: 41px;
+  }
+  .connector.fail {
+    background: repeating-linear-gradient(var(--red) 0 4px, transparent 4px 8px);
+  }
+
+  .ico.spec { background: rgba(163,113,247,0.14); color: var(--purple); }
+  .ico.agent { background: rgba(88,166,255,0.14); color: var(--blue); }
+  .ico.gate { background: var(--amber-soft); color: var(--amber); }
+  .ico.check { background: var(--bg-inset); color: var(--text-dim); border: 1px solid var(--line-bright); }
+  .ico.fail { background: var(--red-soft); color: var(--red); }
+  .ico.pass { background: var(--green-soft); color: var(--green); }
+
+  .gate-stages { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 0 56px; }
+  .gate-stage {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 16px;
+    background: var(--bg-inset);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--amber);
+    border-radius: 0 8px 8px 0;
+  }
+  .gate-stage code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--amber);
+    flex-shrink: 0;
+    min-width: 92px;
+  }
+  .gate-stage .desc { font-size: 13.5px; color: var(--text-dim); }
+
+  .decision {
+    display: flex; gap: 14px; margin: 18px 0 0 56px; flex-wrap: wrap;
+  }
+  .branch {
+    flex: 1; min-width: 240px;
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 14px;
+  }
+  .branch.no { background: var(--red-soft); border: 1px solid rgba(248,81,73,0.3); }
+  .branch.yes { background: var(--green-soft); border: 1px solid rgba(63,185,80,0.3); }
+  .branch .lbl { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; display: block; margin-bottom: 6px; }
+  .branch.no .lbl { color: var(--red); }
+  .branch.yes .lbl { color: var(--green); }
+  .branch p { color: var(--text-dim); }
+
+  /* ---------- Feedback steps ---------- */
+  .steps { counter-reset: s; display: grid; gap: 12px; }
+  .step {
+    display: flex; gap: 16px; align-items: flex-start;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .step::before {
+    counter-increment: s;
+    content: counter(s);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .step .st-body h4 { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .step .st-body p { font-size: 14px; color: var(--text-dim); }
+
+  /* ---------- Skills ---------- */
+  .skill {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-raised);
+  }
+  .skill-head {
+    padding: 18px 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    user-select: none;
+    transition: background .15s;
+  }
+  .skill-head:hover { background: var(--bg-inset); }
+  .skill-head .badge {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 11px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .skill-head .badge.ui { color: var(--blue); background: rgba(88,166,255,0.13); }
+  .skill-head .badge.test { color: var(--green); background: var(--green-soft); }
+  .skill-head .badge.adr { color: var(--purple); background: rgba(163,113,247,0.13); }
+  .skill-head .title { flex: 1; font-weight: 600; font-size: 15.5px; }
+  .skill-head .chev { color: var(--text-faint); transition: transform .25s; font-family: var(--mono); }
+  .skill.open .chev { transform: rotate(90deg); }
+  .skill-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .3s ease;
+  }
+  .skill.open .skill-body { max-height: 220px; }
+  .skill-body-inner { padding: 0 22px 20px 22px; color: var(--text-dim); font-size: 14.5px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+  /* ---------- Backlog layer ---------- */
+  .bl-intro {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--blue);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+  }
+  .bl-intro code { font-family: var(--mono); font-size: 13px; color: var(--blue); flex-shrink: 0; }
+  .bl-intro p { font-size: 14.5px; color: var(--text-dim); margin: 0; }
+
+  /* where it sits — band diagram */
+  .band {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 8px 0 32px;
+  }
+  .band-row {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    border-bottom: 1px solid var(--line);
+  }
+  .band-row:last-child { border-bottom: 0; }
+  .band-label {
+    background: var(--bg-inset);
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-right: 1px solid var(--line);
+  }
+  .band-label.human { color: var(--purple); }
+  .band-label.mgmt  { color: var(--blue); }
+  .band-label.gate  { color: var(--amber); }
+  .band-label .bar { width: 3px; align-self: stretch; border-radius: 2px; }
+  .band-label.human .bar { background: var(--purple); }
+  .band-label.mgmt  .bar { background: var(--blue); }
+  .band-label.gate  .bar { background: var(--amber); }
+  .band-content { padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--line-bright);
+    color: var(--text-dim);
+    background: var(--bg-raised);
+    white-space: nowrap;
+  }
+  .chip.hot { color: var(--blue); border-color: rgba(88,166,255,0.4); background: rgba(88,166,255,0.08); }
+  .band-content .arrow { color: var(--text-faint); font-family: var(--mono); }
+
+  /* phase mapping table */
+  .map { display: grid; gap: 10px; margin-top: 8px; }
+  .map-row {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    gap: 0;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .map-phase {
+    padding: 16px 18px;
+    border-right: 1px solid var(--line);
+    background: var(--bg-inset);
+  }
+  .map-phase .pnum { font-family: var(--mono); font-size: 11px; color: var(--accent); display: block; margin-bottom: 3px; }
+  .map-phase .pname { font-size: 14px; font-weight: 600; }
+  .map-how { padding: 16px 18px; }
+  .map-how .cmd {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--blue);
+    background: var(--bg-inset);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 2px 7px;
+    display: inline-block;
+    margin-bottom: 8px;
+  }
+  .map-how p { font-size: 14px; color: var(--text-dim); margin: 0; }
+  .map-how p strong { color: var(--text); font-weight: 600; }
+
+  .callout {
+    margin-top: 28px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(255,86,48,0.3);
+    border-radius: 12px;
+    padding: 22px 26px;
+  }
+  .callout h4 { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: var(--accent); display: flex; align-items: center; gap: 10px; }
+  .callout p { font-size: 14.5px; color: var(--text-dim); margin: 0; }
+  .callout p strong { color: var(--text); }
+
+  /* ---------- Summary ---------- */
+  .summary {
+    background: linear-gradient(180deg, var(--bg-raised), var(--bg-inset));
+    border: 1px solid var(--line-bright);
+    border-radius: 14px;
+    padding: 36px 38px;
+  }
+  .summary h2 { margin-bottom: 14px; }
+  .summary p { color: var(--text-dim); font-size: 16px; margin-bottom: 0; }
+  .summary .split {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items: center;
+    margin-top: 28px;
+  }
+  .summary .half {
+    background: var(--bg-inset);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .summary .half .role { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
+  .summary .half.human .role { color: var(--purple); }
+  .summary .half.ai .role { color: var(--blue); }
+  .summary .half p { font-size: 14px; }
+  .summary .arrow-mid { font-family: var(--mono); color: var(--accent); font-size: 22px; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 28px;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  svg { display: block; width: 100%; height: auto; }
+
+  @media (max-width: 680px) {
+    body { padding: 0 16px 80px; }
+    .grid-2 { grid-template-columns: 1fr; }
+    .summary .split { grid-template-columns: 1fr; }
+    .summary .arrow-mid { transform: rotate(90deg); justify-self: center; }
+    .gate-stages, .decision, .gate-stage, .gate-stages { margin-left: 0; }
+    .decision { margin-left: 0; }
+    .gate-stages { margin-left: 0; }
+    .band-row { grid-template-columns: 1fr; }
+    .band-label { border-right: 0; border-bottom: 1px solid var(--line); }
+    .map-row { grid-template-columns: 1fr; }
+    .map-phase { border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Agentic Engineering · AI Engineer Europe</div>
+    <h1>Gated Agentic Workflow<br><span class="gt">// PRD-019: Scheduled eval runs</span></h1>
+    <p class="lede">Der Mensch gibt Regeln und das „Warum“ in Dokumenten vor. KI-Agenten arbeiten autonom innerhalb eines durch Git-Hooks und CI gesicherten Rahmens — und werden bei Fehlern durch automatisiertes Feedback zur Selbstkorrektur gezwungen.</p>
+    <div class="principle">If you can't measure it, you can't enforce it.</div>
+  </header>
+
+  <!-- ===================== DIAGRAM ===================== -->
+  <section id="diagram">
+    <div class="sec-head"><span class="sec-num">00</span><h2>Der Kreislauf</h2></div>
+    <p class="sec-sub">Erfassung → Durchsetzung → iterative Korrektur. Schlägt im Gate ein Check fehl, geht das Feedback <em>fail fast</em> zurück an den Agent. Erst wenn alle Stufen grün sind, wird gemerged.</p>
+
+    <div class="legend">
+      <span><i class="dot" style="background:var(--purple)"></i>Spezifikation</span>
+      <span><i class="dot" style="background:var(--blue)"></i>Backlog.md / Agent</span>
+      <span><i class="dot" style="background:var(--amber)"></i>Gate / Harness</span>
+      <span><i class="dot" style="background:var(--red)"></i>Korrekturschleife</span>
+      <span><i class="dot" style="background:var(--green)"></i>Merge</span>
+    </div>
+
+    <svg viewBox="0 0 680 790" role="img" aria-label="Flussdiagramm des Gated Agentic Workflow mit Backlog.md als Management-Layer">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+
+      <!-- Spec chain -->
+      <text x="40" y="28" fill="#8b949e" font-family="var(--mono)" font-size="12" letter-spacing="0.08em">1 · ERFASSUNG (verkettet)</text>
+
+      <g font-family="var(--sans)">
+        <rect x="40" y="42" width="146" height="54" rx="9" fill="rgba(163,113,247,0.13)" stroke="#a371f7" stroke-width="0.5"/>
+        <text x="113" y="66" fill="#c9a9ff" font-size="14" font-weight="600" text-anchor="middle">ADR</text>
+        <text x="113" y="84" fill="#9d7fd1" font-size="11.5" text-anchor="middle">Warum + Regel</text>
+
+        <rect x="202" y="42" width="146" height="54" rx="9" fill="rgba(88,166,255,0.13)" stroke="#58a6ff" stroke-width="0.5"/>
+        <text x="275" y="66" fill="#9ecbff" font-size="14" font-weight="600" text-anchor="middle">PRD-019</text>
+        <text x="275" y="84" fill="#6f9fd1" font-size="11.5" text-anchor="middle">Goal + Journey</text>
+
+        <rect x="364" y="42" width="146" height="54" rx="9" fill="rgba(63,185,80,0.13)" stroke="#3fb950" stroke-width="0.5"/>
+        <text x="437" y="66" fill="#7ee787" font-size="14" font-weight="600" text-anchor="middle">BDD</text>
+        <text x="437" y="84" fill="#5fa869" font-size="11.5" text-anchor="middle">Cucumber-Spec</text>
+
+        <rect x="526" y="42" width="114" height="54" rx="9" fill="rgba(210,153,34,0.13)" stroke="#d29922" stroke-width="0.5"/>
+        <text x="583" y="66" fill="#e3b341" font-size="14" font-weight="600" text-anchor="middle">Design</text>
+        <text x="583" y="84" fill="#b08a2e" font-size="11.5" text-anchor="middle">UI-Regeln</text>
+      </g>
+
+      <line x1="186" y1="69" x2="200" y2="69" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+      <line x1="348" y1="69" x2="362" y2="69" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+      <line x1="510" y1="69" x2="524" y2="69" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <line x1="275" y1="96" x2="275" y2="120" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- Backlog.md management layer -->
+      <rect x="40" y="120" width="600" height="78" rx="12" fill="rgba(88,166,255,0.06)" stroke="rgba(88,166,255,0.35)" stroke-width="0.5"/>
+      <text x="340" y="142" fill="#9ecbff" font-size="13.5" font-weight="600" text-anchor="middle" font-family="var(--sans)">Backlog.md — Management-Layer</text>
+      <g font-family="var(--mono)" font-size="11.5">
+        <rect x="64" y="156" width="150" height="28" rx="6" fill="rgba(88,166,255,0.1)" stroke="rgba(88,166,255,0.3)" stroke-width="0.5"/>
+        <text x="139" y="174" fill="#9ecbff" text-anchor="middle">Spec = Milestone</text>
+        <rect x="250" y="156" width="130" height="28" rx="6" fill="rgba(88,166,255,0.1)" stroke="rgba(88,166,255,0.3)" stroke-width="0.5"/>
+        <text x="315" y="174" fill="#9ecbff" text-anchor="middle">→ Subtasks</text>
+        <rect x="416" y="156" width="200" height="28" rx="6" fill="rgba(88,166,255,0.1)" stroke="rgba(88,166,255,0.3)" stroke-width="0.5"/>
+        <text x="516" y="174" fill="#9ecbff" text-anchor="middle">→ 1 PR / Subtask-Gruppe</text>
+        <text x="232" y="175" fill="#6f9fd1" text-anchor="middle">→</text>
+        <text x="398" y="175" fill="#6f9fd1" text-anchor="middle">→</text>
+      </g>
+
+      <line x1="340" y1="198" x2="340" y2="222" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- Agent -->
+      <rect x="190" y="222" width="300" height="54" rx="9" fill="rgba(88,166,255,0.13)" stroke="#58a6ff" stroke-width="0.5"/>
+      <text x="340" y="246" fill="#9ecbff" font-size="14" font-weight="600" text-anchor="middle" font-family="var(--sans)">2 · Agent arbeitet Subtasks ab</text>
+      <text x="340" y="264" fill="#6f9fd1" font-size="11.5" text-anchor="middle" font-family="var(--sans)">Plan → implementieren → in einem PR bündeln</text>
+
+      <line x1="340" y1="276" x2="340" y2="300" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- Gate container -->
+      <rect x="40" y="300" width="600" height="240" rx="16" fill="rgba(210,153,34,0.05)" stroke="#30363d" stroke-width="0.5"/>
+      <text x="340" y="324" fill="#e3b341" font-size="14" font-weight="600" text-anchor="middle" font-family="var(--sans)">3 · Das Gate — Harness</text>
+      <text x="340" y="342" fill="#b08a2e" font-size="11.5" text-anchor="middle" font-family="var(--sans)">Git-Hooks und CI führen dieselben Kommandos aus</text>
+
+      <g font-family="var(--sans)">
+        <rect x="64" y="360" width="170" height="50" rx="9" fill="rgba(210,153,34,0.13)" stroke="#d29922" stroke-width="0.5"/>
+        <text x="149" y="382" fill="#e3b341" font-size="13.5" font-weight="600" text-anchor="middle">on commit</text>
+        <text x="149" y="399" fill="#b08a2e" font-size="11" text-anchor="middle">Lint · Format · Arch</text>
+
+        <rect x="255" y="360" width="170" height="50" rx="9" fill="rgba(210,153,34,0.13)" stroke="#d29922" stroke-width="0.5"/>
+        <text x="340" y="382" fill="#e3b341" font-size="13.5" font-weight="600" text-anchor="middle">on push</text>
+        <text x="340" y="399" fill="#b08a2e" font-size="11" text-anchor="middle">Types · Quality</text>
+
+        <rect x="446" y="360" width="170" height="50" rx="9" fill="rgba(210,153,34,0.13)" stroke="#d29922" stroke-width="0.5"/>
+        <text x="531" y="382" fill="#e3b341" font-size="13.5" font-weight="600" text-anchor="middle">on PR</text>
+        <text x="531" y="399" fill="#b08a2e" font-size="11" text-anchor="middle">Tests · Cucumber</text>
+      </g>
+
+      <line x1="340" y1="410" x2="340" y2="440" stroke="#484f58" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- Decision -->
+      <rect x="265" y="440" width="150" height="50" rx="9" fill="#0a0e13" stroke="#30363d" stroke-width="0.5"/>
+      <text x="340" y="462" fill="#c9d1d9" font-size="14" font-weight="600" text-anchor="middle" font-family="var(--sans)">Alle grün?</text>
+      <text x="340" y="479" fill="#8b949e" font-size="11" text-anchor="middle" font-family="var(--sans)">DoD erfüllt?</text>
+
+      <!-- fail branch → back to agent -->
+      <text x="455" y="458" fill="#f85149" font-size="11.5" text-anchor="middle" font-family="var(--mono)">nein</text>
+      <path d="M415 465 L470 465 L470 249 L488 249" fill="none" stroke="#f85149" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#ar)"/>
+
+      <!-- correction box -->
+      <rect x="64" y="500" width="500" height="34" rx="8" fill="rgba(248,81,73,0.08)" stroke="rgba(248,81,73,0.3)" stroke-width="0.5"/>
+      <text x="314" y="522" fill="#f0908a" font-size="12" text-anchor="middle" font-family="var(--sans)">Verletzung → Feedback verweist aufs ADR → Task bleibt offen</text>
+
+      <path d="M340 490 L340 500" fill="none" stroke="#f85149" stroke-width="1.2" marker-end="url(#ar)"/>
+      <path d="M64 517 L40 517 L40 249 L188 249" fill="none" stroke="#f85149" stroke-width="0.6" stroke-dasharray="3 4" marker-end="url(#ar)"/>
+
+      <!-- yes branch -->
+      <text x="356" y="566" fill="#3fb950" font-size="11.5" text-anchor="middle" font-family="var(--mono)">ja</text>
+      <line x1="340" y1="540" x2="340" y2="586" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- merge -->
+      <rect x="190" y="586" width="300" height="54" rx="9" fill="rgba(63,185,80,0.13)" stroke="#3fb950" stroke-width="0.5"/>
+      <text x="340" y="610" fill="#7ee787" font-size="14" font-weight="600" text-anchor="middle" font-family="var(--sans)">4 · PR gemerged → Subtasks done</text>
+      <text x="340" y="628" fill="#5fa869" font-size="11.5" text-anchor="middle" font-family="var(--sans)">Milestone-Fortschritt steigt · Board aktualisiert</text>
+
+      <text x="40" y="676" fill="#6e7681" font-size="11.5" font-family="var(--mono)">↻ Ein PR bündelt mehrere Subtasks. Sind alle Subtasks eines Milestones grün → PRD erfüllt.</text>
+    </svg>
+  </section>
+
+  <!-- ===================== 1 · ERFASSUNG ===================== -->
+  <section id="erfassung">
+    <div class="sec-head"><span class="sec-num">01</span><h2>Erfassung von Entscheidungen</h2></div>
+    <p class="sec-sub">Bevor Code geschrieben wird, werden die Rahmenbedingungen maschinen- <em>und</em> menschenlesbar dokumentiert. So weiß sowohl der Mensch als auch der Agent, <strong>warum</strong> etwas gilt — nicht nur, dass es gilt.</p>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <h3><span class="tag adr">ADR</span>Architecture Decision Records</h3>
+        <p>Hält fest, <strong>warum</strong> eine Architektur-Entscheidung getroffen wurde — etwa die Trennung von Schichten zur Vermeidung von N+1-Abfragen — und <strong>wie</strong> die Regel technisch erzwungen wird.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tag prd">PRD</span>Product Requirements Document</h3>
+        <p>Leichtgewichtig. Beschreibt den <strong>Zweck</strong> eines Features, das <strong>Ziel</strong> und die <strong>User Journey</strong>.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tag bdd">BDD</span>Behavior-Driven Development</h3>
+        <p>Eine Zwischenschicht in menschlicher Sprache (ausführbarer Markdown via Cucumber), die beschreibt, wie sich das Produkt verhält. Für Menschen leichter zu prüfen als reiner KI-Testcode.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tag ds">DS</span>Design-Systeme</h3>
+        <p>UI-Regeln (Farben, Button-Größen) als Code-Snippets bereitgestellt. Agenten bauen konsistente Oberflächen, statt bei jedem Element neu zu improvisieren.</p>
+      </div>
+    </div>
+
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f56"></span><span class="d" style="background:#ffbd2e"></span><span class="d" style="background:#27c93f"></span>&nbsp;&nbsp;prd-019.md</div>
+      <div class="code-body"><span class="c-com">---</span>
+<span class="c-key">id</span>: prd-019
+<span class="c-key">status</span>: <span class="c-str">Active</span>
+<span class="c-key">owner</span>: <span class="c-str">"@mikz"</span>
+<span class="c-com">---</span>
+
+<span class="c-key"># Scheduled eval runs</span>
+
+<span class="c-fn">Why</span>:     Regressions should be caught automatically.
+<span class="c-fn">Problem</span>: Evals only run when someone remembers to trigger them.
+<span class="c-fn">Goal</span>:    Let users schedule evals and get alerted on failure.
+<span class="c-fn">Journey</span>: connect model → set schedule → receive alert on regression.</div>
+    </div>
+
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f56"></span><span class="d" style="background:#ffbd2e"></span><span class="d" style="background:#27c93f"></span>&nbsp;&nbsp;features/scheduled-evals.feature</div>
+      <div class="code-body"><span class="c-kw">Feature</span>: Executable spec
+  Spec-driven development does not fully close the loop.
+  BDD should.
+
+  <span class="c-kw">Scenario</span>: Close the loop
+    <span class="c-fn">Given</span> an executable specification exists
+    <span class="c-fn">When</span>  Cucumber runs
+    <span class="c-fn">Then</span>  the scenario passes</div>
+    </div>
+  </section>
+
+  <!-- ===================== 2 · THE LOOP ===================== -->
+  <section id="loop">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Der automatisierte Arbeitskreislauf</h2></div>
+    <p class="sec-sub">Sobald der Agent arbeitet, wird er durch einen <strong>Harness</strong> geleitet — einen Rahmen aus Prüfwerkzeugen. Stilfragen werden nicht diskutiert, sie sind automatisierte Regeln.</p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="ico spec">S</div>
+        <div class="body"><h4>Spezifikation verkettet</h4><span>ADR → PRD → BDD → Design-System liegen vor</span></div>
+      </div>
+      <div class="connector"></div>
+      <div class="stage">
+        <div class="ico agent">A</div>
+        <div class="body"><h4>Agent schreibt Code</h4><span>liest die Spec, implementiert die User Journey</span></div>
+      </div>
+      <div class="connector"></div>
+      <div class="stage" style="flex-direction:column;align-items:stretch;gap:0">
+        <div style="display:flex;align-items:center;gap:18px">
+          <div class="ico gate">⊟</div>
+          <div class="body"><h4>Das Gate — Harness</h4><span>Git-Hooks &amp; CI führen dieselben Kommandos aus</span></div>
+        </div>
+        <div class="gate-stages">
+          <div class="gate-stage"><code>on commit</code><span class="desc">Linting, Formatierung, Architektur-Checks (Modul-Importe)</span></div>
+          <div class="gate-stage"><code>on push</code><span class="desc">Typprüfung, Quality-Checks über mehrere Dateien</span></div>
+          <div class="gate-stage"><code>on PR</code><span class="desc">Tests / executable spec via Cucumber (bewusst nicht in Hooks)</span></div>
+        </div>
+        <div class="decision">
+          <div class="branch no">
+            <span class="lbl">✗ Check rot</span>
+            <p>Commit/Push wird abgelehnt → Korrekturschleife (Abschnitt 03).</p>
+          </div>
+          <div class="branch yes">
+            <span class="lbl">✓ Alle grün</span>
+            <p>Code läuft durch das Gate → Merge.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f56"></span><span class="d" style="background:#ffbd2e"></span><span class="d" style="background:#27c93f"></span>&nbsp;&nbsp;Beispiel: erzwungene Architektur (Modul-Importe)</div>
+      <div class="code-body"><span class="c-com"># Regel verweist auf ADR-007 — "Layer-Trennung"</span>
+<span class="c-fn">✗</span> BDD-Tests dürfen <span class="c-kw">nicht</span> direkt mit der Datenbank reden
+<span class="c-fn">✓</span> Application Code bleibt in Layer aufgeteilt
+<span class="c-fn">↳</span> Violations fail fast — <span class="c-kw">at commit time</span></div>
+    </div>
+  </section>
+
+  <!-- ===================== 3 · FEEDBACK ===================== -->
+  <section id="feedback">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Feedback und Iteration</h2></div>
+    <p class="sec-sub">Das Herzstück des <em>gated</em> Mechanismus. Statt Aufsicht ersetzt das Gate Review durch harte, sofortige Rückmeldung — und kanalisiert das Verhalten des Agents.</p>
+
+    <div class="steps">
+      <div class="step"><div class="st-body"><h4>Ablehnung bei Fehlern</h4><p>Erfüllt der Code die Regeln nicht, wird der Commit abgelehnt — am Commit-Zeitpunkt, nicht erst im Review.</p></div></div>
+      <div class="step"><div class="st-body"><h4>Kontextbezogenes Feedback</h4><p>Der Agent erhält eine Fehlermeldung, die ihn direkt auf das entsprechende Dokument (z. B. das ADR) zurückverweist.</p></div></div>
+      <div class="step"><div class="st-body"><h4>Korrektur in neuer Iteration</h4><p>Der Agent liest das Dokument erneut, versteht den <strong>Grund</strong> für die Regel und korrigiert seinen Code. <span style="font-family:var(--mono);font-size:13px;color:var(--text-faint)">„Agent gets early feedback and works through it to reach the goal.“</span></p></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== 4 · SKILLS ===================== -->
+  <section id="skills">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Spezialisierte Skills für den Fokus</h2></div>
+    <p class="sec-sub">Verschiedene Aufgaben haben unterschiedliche Schwerpunkte. Skills passen den Loop an die jeweilige Tätigkeit an. <span style="color:var(--text-faint)">(Anklicken zum Aufklappen.)</span></p>
+
+    <div class="grid" style="gap:12px">
+      <div class="skill">
+        <div class="skill-head" onclick="this.parentElement.classList.toggle('open')">
+          <span class="badge ui">UI-Skill</span>
+          <span class="title">Schnelle Iteration im Browser</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="skill-body"><div class="skill-body-inner">Überspringt bestimmte Backend-Prüfungen, um schnelle Iterationen direkt im Browser zu ermöglichen. Greift auf die Snippets des Design-Systems zurück, damit Oberflächen konsistent bleiben.</div></div>
+      </div>
+      <div class="skill">
+        <div class="skill-head" onclick="this.parentElement.classList.toggle('open')">
+          <span class="badge test">Test-Skill</span>
+          <span class="title">Gezielte Testauswahl statt voller Suite</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="skill-body"><div class="skill-body-inner">Identifiziert anhand von Code-Abdeckung und Dateiänderungen genau die Tests, die ausgeführt werden müssen — statt die gesamte Suite zu starten. Spart Zeit und schließt den Loop schneller.</div></div>
+      </div>
+      <div class="skill">
+        <div class="skill-head" onclick="this.parentElement.classList.toggle('open')">
+          <span class="badge adr">ADR-Skill</span>
+          <span class="title">Betroffene Architektur-Dokumente finden</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="skill-body"><div class="skill-body-inner">Hilft dem Agenten, gezielt die Architektur-Dokumente zu finden, die von seinen aktuellen Änderungen betroffen sind — damit Feedback und Korrektur am richtigen ADR ansetzen.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 5 · BACKLOG.MD ===================== -->
+  <section id="backlog">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Backlog.md als Management-Layer</h2></div>
+    <p class="sec-sub">Die Spec sagt <em>was &amp; warum</em>, das Gate sagt <em>ob die Regeln halten</em> — aber nichts orchestriert die <strong>Arbeitseinheiten</strong> dazwischen. <a href="https://github.com/MrLesk/Backlog.md" style="color:var(--blue);text-decoration:none;border-bottom:1px solid rgba(88,166,255,0.3)">Backlog.md</a> ist genau diese Schicht — und seine Hierarchie passt 1:1: <strong style="color:var(--text)">je Spec ein Milestone</strong>, darunter <strong style="color:var(--text)">Subtasks</strong>, die abgearbeitet und in PRs gebündelt werden.</p>
+
+    <div class="bl-intro">
+      <code>npm i -g backlog.md</code>
+      <p>Verwaltet jedes Issue als <strong style="color:var(--text)">reine <code style="color:var(--blue)">.md</code>-Datei</strong> im Repo. 100 % offline, spec-driven, mit „Definition of Done"-Checklisten pro Task. Spricht Agenten via MCP oder CLI an.</p>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:600;margin:0 0 14px 0;color:var(--text)">Wo es im Stack sitzt</h3>
+    <div class="band">
+      <div class="band-row">
+        <div class="band-label human"><span class="bar"></span>Mensch</div>
+        <div class="band-content">
+          <span class="chip">ADR</span><span class="chip">PRD-019</span><span class="chip">BDD</span><span class="chip">Design-System</span>
+        </div>
+      </div>
+      <div class="band-row">
+        <div class="band-label mgmt"><span class="bar"></span>Backlog.md</div>
+        <div class="band-content">
+          <span class="chip hot">Spec = Milestone</span><span class="arrow">→</span><span class="chip hot">Subtasks</span><span class="arrow">→</span><span class="chip hot">PR / Subtask-Gruppe</span><span class="arrow">→</span><span class="chip hot">Definition of Done</span>
+        </div>
+      </div>
+      <div class="band-row">
+        <div class="band-label gate"><span class="bar"></span>Gate</div>
+        <div class="band-content">
+          <span class="chip">on commit</span><span class="chip">on push</span><span class="chip">on PR · Cucumber</span>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:13.5px;color:var(--text-faint);margin:-18px 0 32px 0;font-family:var(--mono)">↳ Jede Spec wird ein Milestone. Subtasks darunter sind die Arbeitseinheiten; ein PR bündelt eine Subtask-Gruppe und läuft durchs Gate.</p>
+
+    <h3 style="font-size:16px;font-weight:600;margin:0 0 14px 0;color:var(--text)">Andockpunkte je Phase</h3>
+    <div class="map">
+      <div class="map-row">
+        <div class="map-phase"><span class="pnum">Phase 01</span><span class="pname">Erfassung</span></div>
+        <div class="map-how">
+          <span class="cmd">backlog milestone · task --parent · --ac</span>
+          <p>PRD-019 wird <strong>ein Milestone</strong>. Der Agent zerlegt die User Journey in <strong>Subtasks</strong> mit <strong>Acceptance Criteria</strong>, die den BDD-Szenarien entsprechen. Der <code style="font-family:var(--mono);font-size:12.5px;color:var(--blue)">decisions</code>-Bereich wird zum CLI-durchsuchbaren ADR-Store.</p>
+        </div>
+      </div>
+      <div class="map-row">
+        <div class="map-phase"><span class="pnum">Phase 02</span><span class="pname">The Loop</span></div>
+        <div class="map-how">
+          <span class="cmd">Subtasks → 1 PR → Gate</span>
+          <p>Der Agent arbeitet die Subtasks eines Milestones ab und <strong>bündelt sie in einem PR</strong>. Die Gate-Schleife sitzt auf <strong>PR-Ebene</strong> — kohärenter Change, aber klein genug für präzises <em>fail fast</em>. Der Plan-Schritt vor dem Coden ist dein Review-Checkpoint.</p>
+        </div>
+      </div>
+      <div class="map-row">
+        <div class="map-phase"><span class="pnum">Phase 03</span><span class="pname">Feedback</span></div>
+        <div class="map-how">
+          <span class="cmd">definition_of_done</span>
+          <p>Die DoD-Checkliste (<code style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">Tests pass · No regressions</code>) ist die menschlich lesbare Brücke: Gate rot → DoD nicht erfüllt → Task bleibt offen. Bei schlechtem Output: Plan löschen, Task schärfen, <strong>frische Session</strong>.</p>
+        </div>
+      </div>
+      <div class="map-row">
+        <div class="map-phase"><span class="pnum">Phase 04</span><span class="pname">Skills</span></div>
+        <div class="map-how">
+          <span class="cmd">backlog search --modified-file</span>
+          <p>Tasks speichern die geänderten Dateien. Der <strong>Test-Skill</strong> findet so genau die Tasks/Tests, die ein Change berührt; der <strong>ADR-Skill</strong> sucht über den <code style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">decisions</code>-Bereich.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="code">
+      <div class="code-bar"><span class="d" style="background:#ff5f56"></span><span class="d" style="background:#ffbd2e"></span><span class="d" style="background:#27c93f"></span>&nbsp;&nbsp;setup &amp; loop</div>
+      <div class="code-body"><span class="c-com"># 1 · Init im Repo + MCP-Anbindung (Claude Code / Codex / Gemini)</span>
+<span class="c-fn">$</span> backlog init <span class="c-str">"Scheduled Evals"</span>
+<span class="c-fn">$</span> claude mcp add backlog --scope user -- backlog mcp start
+
+<span class="c-com"># 2 · Spec als Milestone anlegen, Journey in Subtasks zerlegen (Agent, via MCP)</span>
+<span class="c-com">#    PRD-019 → Milestone "scheduled-evals"</span>
+<span class="c-com">#    └─ Subtasks: connect-model · set-schedule · alert-on-regression</span>
+
+<span class="c-com"># 3 · Subtasks abarbeiten, in einem PR bündeln → Gate</span>
+<span class="c-fn">$</span> backlog task edit <span class="c-kw">BACK-12.1</span> --ac <span class="c-str">"connect model"</span> -s <span class="c-str">"Done"</span>
+<span class="c-fn">$</span> backlog task edit <span class="c-kw">BACK-12.2</span> --ac <span class="c-str">"set schedule"</span> -s <span class="c-str">"Done"</span>
+<span class="c-com">#    Agent: Plan → implementieren → ein PR für die Subtask-Gruppe</span>
+
+<span class="c-com"># 4 · Fortschritt auf zwei Ebenen sichtbar machen</span>
+<span class="c-fn">$</span> backlog board                 <span class="c-com"># Subtasks pro Milestone, live</span>
+<span class="c-fn">$</span> backlog search --modified-file <span class="c-kw">src/scheduler.ts</span> --plain</div>
+    </div>
+
+    <div class="callout">
+      <h4>⊹ Der entscheidende Gewinn</h4>
+      <p>Der Milestone (= die Spec) bleibt die stabile Klammer, die Subtasks sind die abarbeitbaren Einheiten. Der Fortschritt wird damit <strong>auf zwei Ebenen lesbar</strong>: pro Milestone, <em>wie viel der Spec erfüllt ist</em> (X von Y Subtasks done), und pro PR, <em>ob der Change durchs Gate ist</em>. Der Milestone gilt erst als erledigt, wenn alle seine Subtasks Gate + DoD bestanden haben — das ist dein <strong>„PRD erfüllt"-Signal</strong>.</p>
+    </div>
+  </section>
+
+  <!-- ===================== SUMMARY ===================== -->
+  <section id="zusammenfassung">
+    <div class="summary">
+      <h2>Zusammenfassung</h2>
+      <p>Der Mensch gibt die Regeln und das „Warum“ in Dokumenten vor. Die KI-Agenten arbeiten innerhalb eines gesicherten Rahmens autonom und werden bei Fehlern durch automatisiertes Feedback zur Selbstkorrektur gezwungen.</p>
+      <div class="split">
+        <div class="half human">
+          <div class="role">Mensch definiert</div>
+          <p>ADR · PRD · BDD · Design-System — das <strong style="color:var(--text)">Warum</strong> und die Grenzen, dokumentiert und maschinenlesbar.</p>
+        </div>
+        <div class="arrow-mid">→</div>
+        <div class="half ai">
+          <div class="role">Agent arbeitet</div>
+          <p>autonom im Rahmen von Git-Hooks &amp; CI — bei Verletzung <strong style="color:var(--text)">fail fast</strong> und Selbstkorrektur über den ADR-Verweis.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Gated Agentic Workflow · PRD-019</span>
+    <span>Braintrust · WorkOS · OpenAI — AI Engineer Europe</span>
+  </footer>
+
+</div>
+</body>
+</html>

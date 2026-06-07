@@ -1,0 +1,12 @@
+=== run-gates.sh start 2026-06-06T22:02:44+02:00 ===
+Repo: /Users/niclasedge/GITHUB_DG/cc-setup
+
+--- Gate: test | cmd: just test ---
+bash: line 1: just test: command not found
+[test] FAIL
+
+--- Gate: go-build | cmd: just go-build ---
+bash: line 1: just go-build: command not found
+[go-build] FAIL
+
+=== run-gates.sh end 2026-06-06T22:02:44+02:00 ===

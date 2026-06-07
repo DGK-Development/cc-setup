@@ -39,7 +39,7 @@ function csrfOk(origin: string | null): boolean {
  *   GET  /gitdiff     -> diff JSON
  *   POST /action/*    -> gated git actions (localhost + Origin check)
  */
-export function createHandler(opts: AppOptions): (req: Request) => Response | Promise<Response> {
+function createHandler(opts: AppOptions): (req: Request) => Response | Promise<Response> {
   const claudeHome = `${HOME}/.claude`;
 
   async function getProjects(): Promise<Array<{ name: string; path: string }>> {

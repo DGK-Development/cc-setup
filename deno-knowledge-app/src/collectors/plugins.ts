@@ -116,7 +116,7 @@ async function readAgentMeta(
  * Reihenfolge der Quell-Gruppe in der Kontext-View: Project → User → Plugin → Built-in.
  * Diese Funktion liefert NUR die Plugin-Einträge (User-Items kommen aus collectGlobal).
  */
-export async function collectPluginItems(claudeHome: string): Promise<{
+async function collectPluginItems(claudeHome: string): Promise<{
   skills: PluginItem[];
   agents: PluginItem[];
 }> {
@@ -175,7 +175,7 @@ export async function collectPluginItems(claudeHome: string): Promise<{
  * Sammelt Project-Agents aus <repoRoot>/.claude/agents/*.md.
  * Nutzt read="project-agent" (neuer readDoc-Kind in render.ts).
  */
-export async function collectProjectAgents(cwd: string): Promise<PluginItem[]> {
+async function collectProjectAgents(cwd: string): Promise<PluginItem[]> {
   const agents: PluginItem[] = [];
   // repoRoot-Import hier vermeiden (Zirkularität) — direktes .claude/agents-Lookup
   // ausgehend vom cwd bis zum Git-Root ist nicht nötig; wir nutzen den übergebenen cwd

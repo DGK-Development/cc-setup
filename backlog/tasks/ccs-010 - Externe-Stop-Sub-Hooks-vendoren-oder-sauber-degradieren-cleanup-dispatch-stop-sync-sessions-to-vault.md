@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-06-05 05:13'
-updated_date: '2026-06-05 16:05'
+updated_date: '2026-06-07 08:26'
 labels:
   - infra
   - hooks
@@ -49,6 +49,10 @@ AC#1-Entscheidung (2026-06-05, User-bestaetigt): SPLIT statt binaer.
 - cleanup-dispatch-stop.sh -> VENDOREN. Begruendung: generisch (ruff/fallow/cargo-fmt auf geaenderte Files), degradiert selbst via command -v, keine Vault-/PAI-Abhaengigkeit -> passt zum self-contained-Ziel (CCS-005/012).
 - sync-sessions-to-vault.sh -> EXTERN belassen. Begruendung: PKM-spezifisch (hartkodierter ObsidianPKM-Default-Pfad, schreibt Session-Konversation in den Vault), gehoert zum privaten Setup des Users, nicht in ein generisches deploybares Repo; beruehrt zudem Org-Regel (keine personenbezogenen Daten in geteiltem Code). stop-workflow.sh degradiert no-op + Hinweis.
 Deployment-Mechanik verifiziert: deploy.sh kopiert jede hooks/*.sh nach CC_SETUP_DIR/hooks/ (Z.233-237), bundle.sh rsynct hooks/ komplett (Z.35-40), stop-workflow.sh nutzt HOOK_DIR (eigenes Verzeichnis). Kein setup.sh/bundle.sh-Edit noetig.
+
+2026-06-07: Vom pi-Orchestrator-E2E-Lauf gepickt (PICK->SPEC, gemma4:12b-mlx interaktiv). planner stellte OPEN QUESTION (Pfad cleanup-dispatch-stop.sh) -> Pipeline am GATE0_SPEC pausiert (Spec-Gate/Human-Oversight greift wie spezifiziert). ANTWORT auf die Frage: cleanup-dispatch-stop.sh + sync-sessions-to-vault.sh liegen LIVE unter ~/.claude/hooks/ (absolut, NICHT im Repo) -> Vendor-Ziel hooks/ im Repo, sonst sauber degradieren. Status: wartet auf User-Entscheidung resume/cancel. Kein Code geaendert (planner read-only).
+
+Spec-Gate freigegeben (.pi/orchestrator-resume gesetzt). HINWEIS vor dem Build: just test ist im Working-Tree ROT wegen UNRELATED deno-knowledge-app-Refactor (export von collectTokens/collectSidebar/collectGlobal entfernt) -> GATE1 wuerde scheitern, unabhaengig von CCS-010. Empfehlung: deno-Arbeit vorher stashen (git stash push -- deno-knowledge-app/). HEAD ist gruen.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

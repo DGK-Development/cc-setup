@@ -47,7 +47,7 @@ function extractTnTasks(payload: TnPayload | null): TnTask[] {
  * compared as YYYY-MM-DD strings. Deliberately does NOT pull from cross-project
  * data — the caller guarantees project scope (see collectTn).
  */
-export function pickOverdue(
+function pickOverdue(
   tasks: TnTask[],
   todayIso: string,
   blockedIds: Set<unknown>,
@@ -79,7 +79,7 @@ async function tnJson(repo: string, ...args: string[]): Promise<TnPayload | null
   return parseJson<TnPayload>(out);
 }
 
-export async function collectTn(cwd: string): Promise<Record<string, unknown>> {
+async function collectTn(cwd: string): Promise<Record<string, unknown>> {
   try {
     const repo = await repoRoot(cwd);
     const nxt = await tnJson(repo, "next", "--format", "json", "--limit", "5");

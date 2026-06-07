@@ -211,16 +211,31 @@ const sidebarCSS = `
   margin:2px 6px 4px 14px; border-radius:0 6px 6px 0;
   border-bottom:0;
 }
+/* Project sidebar: headings larger, sub-items smaller (swapped) */
 .proj-sub #mp-nav .nav-g{
-  font-size:8.5px; padding:8px 10px 3px; letter-spacing:.1em;
+  font-size:13px; padding:9px 10px 4px; letter-spacing:.04em;
 }
-.proj-sub #mp-nav .nav-i{
-  padding:5px 10px; margin:0 4px; font-size:11.5px;
-}
+.proj-sub #mp-nav .nav-i{ padding:4px 10px; margin:0 4px; }
+.proj-sub #mp-nav .nav-i:not(.nav-solo) .nn{ font-size:10.5px; }
+/* Single-item nav groups: lone item rendered as a heading-styled clickable link */
+#mp-nav .nav-i.nav-solo{ margin-top:5px; }
+#mp-nav .nav-i.nav-solo .nn{ font-size:13px; letter-spacing:.04em; text-transform:uppercase;
+  font-weight:700; color:var(--dim); }
+#mp-nav .nav-i.nav-solo:hover .nn{ color:var(--fg-2); }
+#mp-nav .nav-i.nav-solo.is-active .nn{ color:var(--cyan); }
 `
 
 const projectCSS = `
 .ovwrap{ padding:0; }
+/* Project overview two-column layout: left = init-load/tn/backlog, right = wissen/memory */
+.ov-cols{ display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; padding:14px 16px; }
+.ov-col{ display:flex; flex-direction:column; gap:14px; min-width:300px; box-sizing:border-box; }
+.ov-col-l{ flex:3 1 360px; }
+.ov-col-r{ flex:2 1 280px; }
+.ov-col .pane{ width:100%; box-sizing:border-box; }
+/* Clickable overview rows (open detail modal) */
+.ov-click{ cursor:pointer; border-radius:6px; transition:background .1s; }
+.ov-click:hover{ background:var(--panel-2); }
 .ovbar{
   display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
   padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel);
@@ -334,6 +349,10 @@ const kanbanCSS = `
 .kn-card-ms{ font-size:10.5px; color:var(--dim,#8a929c); margin-top:3px; }
 .kn-card.ro{ cursor:default; }
 .kn-col-empty{ padding:10px 12px; color:var(--faint,#6c7682); font-size:11px; }
+.kn-sprint-h{ font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:700;
+  color:var(--amber,#d79921); padding:7px 2px 3px; margin-top:5px;
+  border-top:1px solid var(--line-2,#1c2229); }
+.kn-sprint-h:first-child{ margin-top:0; border-top:0; padding-top:2px; }
 .kn-modal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center;
   justify-content:center; z-index:1000; }
 .kn-modal-box{ background:var(--panel,#0b0d10); border:1px solid var(--line-2,#1c2229);

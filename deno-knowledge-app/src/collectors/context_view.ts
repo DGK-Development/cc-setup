@@ -19,24 +19,24 @@ const HOME = Deno.env.get("HOME") ?? "/tmp";
 // Coarse ≈ values for the Claude Code system prompt and the built-in tool
 // definitions. Marked `fixed` in the UI so it's clear these are not measured.
 // ≈ fix, harness-/versionsabhängig, beobachtet via /context.
-export const SYS_PROMPT_TOK = 3600;
-export const SYS_TOOLS_TOK = 7900;
+const SYS_PROMPT_TOK = 3600;
+const SYS_TOOLS_TOK = 7900;
 
 // Kalibrierungsfaktor für datei-basierte Kategorien (Skills, Agents, Memory).
 // chars/4 unterschätzt Markdown/Deutsch um ~1.7-1.9×; empirisch gegen /context
 // kalibriert (cc-setup: Memory 17.9k→17.1k, Skills 11.1k→10.4k, total ~43k→~42k).
 // Wird NUR in der Kontext-View-Aggregation angewendet — estTokens bleibt unverändert
 // (parity-gebunden gegen knowledge.py). Alle Werte bleiben als "≈ geschätzt" gelabelt.
-export const CTX_CALIB = 1.7;
+const CTX_CALIB = 1.7;
 
 /** Wendet den Kalibrierungsfaktor auf einen estTokens-Wert an. Nur für die Kontext-View. */
-export function ctxTok(est: number): number {
+function ctxTok(est: number): number {
   return Math.round(est * CTX_CALIB);
 }
 
 // Claude Code context window (≈ 1M-token tier). The free-space gauge is computed
 // against this.
-export const CTX_WINDOW = 1_000_000;
+const CTX_WINDOW = 1_000_000;
 
 /** A single token-bearing item inside a context category (agent/skill/file). */
 export interface ContextItem {
@@ -77,7 +77,7 @@ export interface ContextCategory {
  * project's cwd into its per-project dir. If the harness changes that layout,
  * set CLAUDE_MEMORY_DIR to override.
  */
-export async function memoryMdTokens(
+async function memoryMdTokens(
   cwd: string,
 ): Promise<{ available: boolean; tokens: number; path: string }> {
   const dir = Deno.env.get("CLAUDE_MEMORY_DIR") ??

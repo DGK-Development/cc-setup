@@ -12,7 +12,7 @@ export interface RunOptions {
  * `null` on non-zero exit, missing binary, or timeout. Replaces
  * `subprocess.run(..., capture_output=True)` + the broad except in knowledge.py.
  */
-export async function run(cmd: string[], opts: RunOptions = {}): Promise<string | null> {
+async function run(cmd: string[], opts: RunOptions = {}): Promise<string | null> {
   const [bin, ...args] = cmd;
   try {
     const command = new Deno.Command(bin, {
@@ -31,7 +31,7 @@ export async function run(cmd: string[], opts: RunOptions = {}): Promise<string 
 }
 
 /** Read a UTF-8 file, returning `null` instead of throwing on any error. */
-export async function readText(path: string): Promise<string | null> {
+async function readText(path: string): Promise<string | null> {
   try {
     return await Deno.readTextFile(path);
   } catch {
@@ -40,7 +40,7 @@ export async function readText(path: string): Promise<string | null> {
 }
 
 /** Parse JSON, returning `null` on malformed input (mirrors a guarded json.loads). */
-export function parseJson<T = unknown>(text: string | null | undefined): T | null {
+function parseJson<T = unknown>(text: string | null | undefined): T | null {
   if (!text) return null;
   try {
     return JSON.parse(text) as T;

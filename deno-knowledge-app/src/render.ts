@@ -14,7 +14,7 @@ export interface RenderOptions {
 // ---------------------------------------------------------------------------
 
 /** JSON-serializes obj with </script>, <, >, & and JS line separators escaped. */
-export function safeScriptJson(obj: unknown): string {
+function safeScriptJson(obj: unknown): string {
   let s = JSON.stringify(obj);
   // Replace chars that break a <script> context
   s = s.replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
@@ -42,7 +42,7 @@ const RESULT_CSS = "body{margin:0;background:#0a0b0d;color:#d7dee5;" +
   ".cmd{color:#8c8fa1;} a{color:#209fb5;} .ok{color:#40a02b;} .err{color:#d20f39;}" +
   "}";
 
-export function resultPage(action: string, result: Record<string, unknown>): string {
+function resultPage(action: string, result: Record<string, unknown>): string {
   const ok = Boolean(result.ok);
   const badge = ok ? '<span class="ok">OK</span>' : '<span class="err">Fehler</span>';
   return (
@@ -75,7 +75,7 @@ function under(child: string, parent: string): boolean {
   }
 }
 
-export async function readDoc(
+async function readDoc(
   cwd: string,
   claudeHome: string,
   kind: string,
@@ -619,7 +619,7 @@ details.ctx-readable[open] > summary .ctx-in{ color:var(--cyan); }
 .ctx-grp:first-child{ border-top:0; margin-top:0; padding-top:2px; }
 `;
 
-export async function renderPage(
+async function renderPage(
   opts: RenderOptions & {
     context?: Record<string, unknown>;
     sidebar?: Array<

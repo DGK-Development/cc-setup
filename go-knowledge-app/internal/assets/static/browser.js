@@ -55,7 +55,11 @@
       var mtimeSeg = d.mtime ? " · geändert " + esc(d.mtime) : "";
       var head = '<div class="fmeta">~' + ktok(d.tokens) + " tok · " + de(d.size) + " B" + mtimeSeg + "</div>";
       var note = d.truncated ? '<div class="ftrunc">… gekürzt auf 60k Zeichen</div>' : "";
-      host.innerHTML = head + '<pre class="filebody">' + esc(d.content) + "</pre>" + note;
+      // md: render content as clean markdown (kn-md) instead of raw <pre>
+      var bodyHtml = (params && params.md)
+        ? '<div class="kn-md filebody-md">' + mdToHtml(d.content) + "</div>"
+        : '<pre class="filebody">' + esc(d.content) + "</pre>";
+      host.innerHTML = head + bodyHtml + note;
     }).catch(function (e) { host.innerHTML = '<div class="dt-empty">Fehler: ' + esc(String(e)) + "</div>"; });
   }
 
@@ -164,28 +168,38 @@
   var SPECIAL = { ov: 1, cost: 1, boards: 1, milestones: 1, context: 1 };
 
   /* ---------- nav ---------- */
+  function navCount(it) {
+    if (it.id === "ov") return "grid";
+    if (it.id === "git") return GIT && GIT.files_struct ? GIT.files_struct.length : "·";
+    if (it.id === "cost") return "$";
+    if (it.id === "context") return COLL.context && COLL.context.categories ? COLL.context.categories.length : 0;
+    if (it.cnt != null) return it.cnt;
+    return COLL[it.id] ? (COLL[it.id].items ? COLL[it.id].items.length : 0) : 0;
+  }
+  function navRow(it, extraCls) {
+    var c = navCount(it);
+    var ncInner = esc(c) + (it.tok ? '<small>~' + esc(it.tok) + " tok</small>" : "");
+    // is-empty: dim entries whose count is exactly the number 0 (not strings like "grid"/"$")
+    var isEmpty = (typeof c === "number" && c === 0) || (typeof c === "string" && c === "0");
+    var row = el(
+      '<div class="nav-i' + (extraCls ? " " + extraCls : "") + (isEmpty ? " is-empty" : "") + '" data-id="' + esc(it.id) + '">' +
+        '<span class="nn">' + esc(it.label) + "</span>" +
+        '<span class="nc">' + ncInner + "</span>" +
+      "</div>"
+    );
+    row.addEventListener("click", function () { select(it.id); });
+    nav.appendChild(row);
+  }
   NAV.forEach(function (grp) {
+    var items = grp.items || [];
+    // Single-item groups: the group heading is redundant → render the lone item
+    // directly as a heading-styled link (no separate .nav-g header).
+    if (items.length === 1) {
+      navRow(items[0], "nav-solo");
+      return;
+    }
     nav.appendChild(el('<div class="nav-g">' + esc(grp.g) + "</div>"));
-    (grp.items || []).forEach(function (it) {
-      var c;
-      if (it.id === "ov") c = "grid";
-      else if (it.id === "git") c = GIT && GIT.files_struct ? GIT.files_struct.length : "·";
-      else if (it.id === "cost") c = "$";
-      else if (it.id === "context") c = COLL.context && COLL.context.categories ? COLL.context.categories.length : 0;
-      else if (it.cnt != null) c = it.cnt;
-      else c = COLL[it.id] ? (COLL[it.id].items ? COLL[it.id].items.length : 0) : 0;
-      var ncInner = esc(c) + (it.tok ? '<small>~' + esc(it.tok) + " tok</small>" : "");
-      // is-empty: dim entries whose count is exactly the number 0 (not strings like "grid"/"$")
-      var isEmpty = (typeof c === "number" && c === 0) || (typeof c === "string" && c === "0");
-      var row = el(
-        '<div class="nav-i' + (isEmpty ? " is-empty" : "") + '" data-id="' + esc(it.id) + '">' +
-          '<span class="nn">' + esc(it.label) + "</span>" +
-          '<span class="nc">' + ncInner + "</span>" +
-        "</div>"
-      );
-      row.addEventListener("click", function () { select(it.id); });
-      nav.appendChild(row);
-    });
+    items.forEach(function (it) { navRow(it, ""); });
   });
 
   /* ---------- select a nav entry ---------- */
@@ -217,6 +231,20 @@
       mp.classList.add("is-overview"); state.coll = null;
       setCrumb("Kontext", "· Projekt");
       renderContext();
+    } else if (id === "psections") {
+      // CLAUDE.md: single file → no 2nd sidebar, full-width markdown detail.
+      mp.classList.add("is-overview"); state.coll = "psections"; state.idx = 0;
+      setCrumb("CLAUDE.md", "· Projekt");
+      list.innerHTML = "";
+      var pc = COLL["psections"];
+      if (pc && pc.items && pc.items.length) renderDetail(pc, pc.items[0]);
+      else detail.innerHTML = '<div class="dt dt-empty">Keine CLAUDE.md</div>';
+    } else if (id === "changelog") {
+      // CHANGELOG: like CLAUDE.md — no 2nd sidebar, full-width markdown document.
+      mp.classList.add("is-overview"); state.coll = "changelog"; state.idx = 0;
+      setCrumb("CHANGELOG", "· Projekt");
+      list.innerHTML = "";
+      renderChangelogDoc();
     } else if (SPECIAL[id]) {
       mp.classList.add("is-overview");
       if (id === "ov") {
@@ -284,7 +312,8 @@
     var board = el('<div class="kn-board"></div>');
     BOARD_STATUSES.forEach(function (st) {
       var key = st.toLowerCase();
-      var items = c.items.filter(function (it) { return String(it.status || "").toLowerCase() === key; });
+      var items = c.items.filter(function (it) { return String(it.status || "").toLowerCase() === key; })
+        .sort(function (a, b) { return (Number(b.mtime) || 0) - (Number(a.mtime) || 0); });
       var col = el(
         '<div class="kn-col" data-status="' + esc(st) + '">' +
           '<div class="kn-col-h">' + esc(st) + ' <span class="kn-col-c">' + items.length + "</span></div>" +
@@ -294,8 +323,7 @@
       items.forEach(function (it) {
         var card = el(
           '<div class="kn-card" draggable="true" data-id="' + esc(it.name) + '">' +
-            '<div class="kn-card-id">' + esc(it.name) + "</div>" +
-            '<div class="kn-card-t">' + esc(it.title || "") + "</div>" +
+            '<div class="kn-card-t"><span class="kn-card-id">' + esc(it.name) + "</span> " + esc(it.title || "") + "</div>" +
             (it.milestone && it.milestone !== "—"
               ? '<div class="kn-card-ms">' + esc(it.milestone) + "</div>"
               : "") +
@@ -418,6 +446,15 @@
       .catch(function (e) { updateModal(title, "Fehler: " + String(e)); });
   }
 
+  /* Open a /read-backed file in the modal (memory/lektion/doc/CLAUDE.md). */
+  function openFileModal(title, kind, params) {
+    showModal(title, "lädt…");
+    fetch("/read?" + qs(Object.assign({ kind: kind, project: ACTIVE }, params || {})))
+      .then(function (r) { return r.json(); })
+      .then(function (x) { updateModal(title, (x && x.ok) ? x.content : ("Konnte nicht laden" + (x && x.error ? ": " + x.error : ""))); })
+      .catch(function () { updateModal(title, "Fehler (Netzwerk)"); });
+  }
+
   /* ---------- minimal, XSS-safe markdown → HTML (task modal) ---------- */
   function mdEsc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -536,6 +573,8 @@
     var c = COLL[state.coll];
     if (!c) { list.innerHTML = ""; return; }
     var rows = c.items.map(function (it, i) { return { it: it, i: i }; });
+    // CLAUDE.md: don't list individual sections in the sidebar — one entry, full file below.
+    if (c.type === "claude") rows = rows.slice(0, 1);
     if (q) {
       var ql = q.toLowerCase();
       rows = rows.filter(function (r) {
@@ -564,7 +603,7 @@
     // Types that show an init-load token count on the right (no status dot)
     var TOK_TYPES = { skill: true, agent: true };
     // Types with no status dot at all (clean list rows)
-    var NO_DOT_TYPES = { skill: true, agent: true, know: true, lesson: true, memory: true };
+    var NO_DOT_TYPES = { skill: true, agent: true, know: true, lesson: true, memory: true, claude: true, changelog: true };
 
     function makeRow(r) {
       var sub;
@@ -577,7 +616,8 @@
           (c.type === "task" ? r.it.title : "") ||
           r.it.type || r.it.scope || "";
       }
-      var nm = c.type === "decision" ? String(r.it.name).replace(/^\d+\s—\s/, "") : r.it.name;
+      var nm = c.type === "decision" ? String(r.it.name).replace(/^\d+\s—\s/, "")
+        : c.type === "claude" ? "CLAUDE.md (ganze Datei)" : r.it.name;
 
       // Right side: init-load token for skill/agent; decision index for decisions; nothing otherwise
       var right = "";
@@ -689,8 +729,8 @@
       meta.push(metaCell("Scope", esc(c.scope)));
       meta.push(metaCell("Token (≈)", "~" + ktok(doc.tokens || 0)));
       meta.push(metaCell("Größe", de(doc.size || 0) + " B"));
-      descHtml = "Section <code>" + esc(it.name) + "</code> — voller Inhalt unten."; desc = "";
-      secs.push({ h: "CLAUDE.md (" + esc(c.scope) + ")", html: '<div class="filehost" data-read="' + esc(doc.kind || "") + '"></div>' });
+      desc = ""; descHtml = "";
+      secs.push({ h: "CLAUDE.md (" + esc(c.scope) + ")", html: '<div class="filehost" data-read="' + esc(doc.kind || "") + '" data-md="1"></div>' });
     } else if (c.type === "agent") {
       b.push(badge("c", "agent")); b.push(badge("", c.scope));
       if (it.tokens) b.push(badge("c", "~" + ktok(it.tokens) + " tok"));
@@ -751,8 +791,9 @@
       b.push(badge("", "CHANGELOG"));
       eyebrow = "CHANGELOG · " + c.scope; desc = "";
       var clBody = it.body ? String(it.body) : "";
-      secs.push({ h: "Eintrag", html: '<div class="prose">' + esc(it.name) + "</div>" +
-        (clBody ? '<pre class="filebody" style="margin-top:8px">' + esc(clBody) + "</pre>" : "") });
+      secs.push({ h: "Eintrag", html: clBody
+        ? '<div class="kn-md">' + mdToHtml(clBody) + "</div>"
+        : '<div class="dt-empty">(kein Inhalt)</div>' });
     } else if (c.type === "decision") {
       var st = statusPair(it.status); b.push(badge(st[0], st[1])); b.push(badge("", "ADR " + esc(it.id)));
       meta.push(metaCell("ID", esc(it.id))); meta.push(metaCell("Status", st[1]));
@@ -817,7 +858,9 @@
       ? String(it.name).replace(/^\d+\s—\s/, "")
       : c.type === "changelog"
         ? String(it.name).replace(/^#{1,3}\s+/, "")
-        : (c.type === "task" && it.title ? it.title : it.name);
+        : c.type === "claude"
+          ? "CLAUDE.md"
+          : (c.type === "task" && it.title ? it.title : it.name);
     detail.innerHTML = '<div class="dt">' +
       '<div class="dt-eyebrow">' + esc(eyebrow) + "</div>" +
       '<h2><span class="mono">' + esc(title) + "</span></h2>" +
@@ -841,7 +884,7 @@
   /* auto-load inline hosts + wire clickable file/script chips */
   function wireFileHosts(root) {
     var fhost = root.querySelector(".filehost[data-read]");
-    if (fhost) loadFile(fhost.dataset.read, { name: fhost.dataset.name, path: fhost.dataset.path }, fhost);
+    if (fhost) loadFile(fhost.dataset.read, { name: fhost.dataset.name, path: fhost.dataset.path, md: fhost.dataset.md }, fhost);
     [].forEach.call(root.querySelectorAll(".fchip[data-read]"), function (chip) {
       chip.addEventListener("click", function () {
         var sec = chip.closest(".dt-sec") || root;
@@ -849,7 +892,7 @@
         if (!host) return;
         [].forEach.call((sec.querySelectorAll(".fchip")), function (x) { x.classList.remove("is-active"); });
         chip.classList.add("is-active");
-        loadFile(chip.dataset.read, { name: chip.dataset.name, path: chip.dataset.path }, host);
+        loadFile(chip.dataset.read, { name: chip.dataset.name, path: chip.dataset.path, md: chip.dataset.md }, host);
       });
     });
   }
@@ -1052,20 +1095,18 @@
       var blBoard = el('<div class="kn-board" style="flex-wrap:wrap;height:auto;overflow:visible;"></div>');
       BOARD_STATUSES.forEach(function (st) {
         var key = st.toLowerCase();
-        var items = blC.items.filter(function (it) { return String(it.status || "").toLowerCase() === key; });
+        var items = blC.items.filter(function (it) { return String(it.status || "").toLowerCase() === key; })
+          .sort(function (a, b) { return (Number(b.mtime) || 0) - (Number(a.mtime) || 0); });
         var col = el(
           '<div class="kn-col" style="min-width:200px;max-height:none;" data-status="' + esc(st) + '">' +
             '<div class="kn-col-h">' + esc(st) + ' <span class="kn-col-c">' + items.length + "</span></div>" +
             '<div class="kn-col-body"></div></div>',
         );
         var body = col.querySelector(".kn-col-body");
-        items.forEach(function (it) {
+        function mkCard(it) {
           var card = el(
             '<div class="kn-card" draggable="true" data-id="' + esc(it.name) + '">' +
-              '<div class="kn-card-id">' + esc(it.name) + "</div>" +
-              '<div class="kn-card-t">' + esc(it.title || "") + "</div>" +
-              (it.milestone && it.milestone !== "—"
-                ? '<div class="kn-card-ms">' + esc(it.milestone) + "</div>" : "") +
+              '<div class="kn-card-t"><span class="kn-card-id">' + esc(it.name) + "</span> " + esc(it.title || "") + "</div>" +
             "</div>",
           );
           card.addEventListener("dragstart", function (e) {
@@ -1074,7 +1115,24 @@
           });
           card.addEventListener("dragend", function () { card.classList.remove("dragging"); });
           card.addEventListener("dblclick", function () { openTaskDetail(it); });
-          body.appendChild(card);
+          return card;
+        }
+        // Group tasks by sprint (milestone) within the column, like the overview.
+        // items is pre-sorted by mtime desc → cards within a group stay newest-first.
+        // Groups are ordered by their newest task mtime (group with newer change on top).
+        var grp = {}, gOrder = [];
+        items.forEach(function (it) {
+          var ms = (it.milestone && it.milestone !== "—") ? it.milestone : "(ohne Sprint)";
+          if (!grp[ms]) { grp[ms] = []; gOrder.push(ms); }
+          grp[ms].push(it);
+        });
+        function maxMtime(arr) {
+          return arr.reduce(function (m, t) { return Math.max(m, Number(t.mtime) || 0); }, 0);
+        }
+        gOrder.sort(function (a, b) { return maxMtime(grp[b]) - maxMtime(grp[a]); });
+        gOrder.forEach(function (ms) {
+          body.appendChild(el('<div class="kn-sprint-h">' + esc(ms) + "</div>"));
+          grp[ms].forEach(function (it) { body.appendChild(mkCard(it)); });
         });
         col.addEventListener("dragover", function (e) { e.preventDefault(); col.classList.add("dragover"); });
         col.addEventListener("dragleave", function () { col.classList.remove("dragover"); });
@@ -1342,6 +1400,20 @@
      All data from window.DATA: COLL (coll), OV (overview), ACTIVE.
      tn-Org-Block: tn contents only from COLL.tn (active project). Cross-project
      only uses counts (OV.tn_total, header). */
+  /* CHANGELOG as one full-width markdown document (no 2nd sidebar). */
+  function renderChangelogDoc() {
+    var items = (COLL["changelog"] || {}).items || [];
+    var body = items.length
+      ? '<div class="kn-md">' + mdToHtml(items.map(function (x) {
+          return (x.name || "") + "\n\n" + (x.body || "");
+        }).join("\n\n---\n\n")) + "</div>"
+      : '<div class="dt-empty">Kein Changelog</div>';
+    detail.innerHTML = '<div class="dt ctx-wrap">' +
+      '<div class="dt-eyebrow">CHANGELOG · Projekt</div>' +
+      '<h2><span class="mono">CHANGELOG</span> <span class="ctx-sum-p">(' + items.length + ")</span></h2>" +
+      body + "</div>";
+  }
+
   function renderProjectOverview() {
     var d = detail;
     d.innerHTML = "";
@@ -1377,9 +1449,12 @@
     }
     var projInitTok = OV.proj_init_tok || "0";
 
-    // ---- decisions/changelog from knowledge ----
+    // ---- decisions/changelog/memory/lektionen/docs from knowledge ----
     var decisionItems = (COLL["decisions"] || {}).items || [];
     var changelogItems = (COLL["changelog"] || {}).items || [];
+    var memItems = (COLL["memory"] || {}).items || [];
+    var lessonItems = (COLL["lessons"] || {}).items || [];
+    var docItems = (COLL["docs"] || {}).items || [];
     var knowCounts = OV.know_counts || {};
 
     // ---- backlog milestones (COLL.backlog.items grouped by milestone) ----
@@ -1406,7 +1481,7 @@
         var stCls = (st === "done") ? "done"
           : (st.indexOf("progress") >= 0) ? "wip" : "todo";
         var subCls = st === "done" ? " sub-done" : "";
-        return '<div class="sub' + subCls + '">' +
+        return '<div class="sub ov-click' + subCls + '" data-open="task" data-file="' + esc(t.file || "") + '" data-name="' + esc(t.name || "") + '" data-title="' + esc(t.title || "") + '">' +
           '<span class="ico st-' + stCls + '">' + statusIcon(stCls, 11) + "</span>" +
           '<span class="t">' + esc(t.title || t.name || "") + "</span></div>";
       }).join("");
@@ -1431,7 +1506,8 @@
         var meta = secDef.key === "blocked"
           ? esc(t.desc || "blockiert")
           : esc(t.desc || "");
-        return '<div class="tn-row">' +
+        return '<div class="tn-row' + (t.id ? " ov-click" : "") + '"' +
+          (t.id ? ' data-open="tn" data-id="' + esc(t.id) + '" data-name="' + esc(t.name || "") + '"' : "") + ">" +
           '<span class="tn-t">' + esc(t.name || "") + "</span>" +
           '<span class="tn-meta">' + meta + "</span></div>";
       }).join("");
@@ -1490,69 +1566,114 @@
         '<div class="k-s">CLAUDE.md + memory</div></div>' +
       "</div>" +
 
-      // Wissens-Reihe
-      '<div class="panes">' +
-      '<div class="pane w7">' +
-        '<div class="p-head"><span class="pt">CLAUDE.md · Abschnitte</span>' +
-          (claudeTok ? '<span class="pc">~' + fmtTok(claudeTok) + " tok</span>" : "") +
-        '<span class="sp"></span></div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px;">' + (sectionTags || '<span style="color:var(--faint);font-size:11px">keine Abschnitte</span>') + "</div>" +
-        (tloadItems.length ? '<div class="p-head" style="margin-top:18px;"><span class="pt">Projekt Init-Load</span><span class="sp"></span></div>' +
-          '<div class="tload">' + tloadRows(tloadItems) + "</div>" +
-          '<div class="tload-foot"><span class="tf-l">Summe bei Projekt-Load</span><span class="tf-v">' + fmtTok(initTotal) + " tok</span></div>" : "") +
+      // Two columns: LEFT = Init-Load → tn → Backlog · RIGHT = Wissens-Index → neueste Memory
+      '<div class="ov-cols">' +
+
+      '<div class="ov-col ov-col-l">' +
+        '<div class="pane">' +
+          '<div class="p-head"><span class="pt">Projekt Init-Load</span>' +
+            (claudeTok ? '<span class="pc">~' + fmtTok(claudeTok) + " tok CLAUDE.md</span>" : "") +
+          '<span class="sp"></span></div>' +
+          (tloadItems.length
+            ? '<div class="tload">' + tloadRows(tloadItems) + "</div>" +
+              '<div class="tload-foot"><span class="tf-l">Summe bei Projekt-Load</span><span class="tf-v">' + fmtTok(initTotal) + " tok</span></div>"
+            : '<div style="color:var(--faint);font-size:11px;padding:6px 0">—</div>') +
+        "</div>" +
+        '<div class="pane">' +
+          '<div class="p-head"><span class="pt">Tasknotes · tn</span><span class="pc">' + tnCount + "</span>" +
+            '<span class="sp"></span><span class="src-tag">Tasknotes</span></div>' +
+          (tnCount
+            ? TN_SECS_DEF.map(tnSectionHtml).join("")
+            : '<div style="color:var(--faint);font-size:11px;padding:6px 0">Keine tn-Tasks</div>') +
+        "</div>" +
+        '<div class="pane">' +
+          '<div class="p-head"><span class="pt">Backlog · Meilensteine &amp; Subtasks</span>' +
+            '<span class="pc">' + backlogOpen + " offen</span>" +
+            '<span class="sp"></span><span class="src-tag">Backlog.md</span></div>' +
+          (msOrder.length
+            ? msOrder.map(function(msName) { return msBlock(msName, msMap[msName]); }).join("")
+            : '<div style="color:var(--faint);font-size:11px;padding:6px 0">Keine offenen Meilensteine</div>') +
+          (blDoneItems.length
+            ? '<details style="margin-top:8px"><summary style="font-size:10px;color:var(--dim);cursor:pointer;padding:4px 0">Done <span style="color:var(--faint)">' + blDoneItems.length + "</span></summary>" +
+              blDoneItems.map(function(t) {
+                return '<div class="sub sub-done ov-click" data-open="task" data-file="' + esc(t.file || "") + '" data-name="' + esc(t.name || "") + '" data-title="' + esc(t.title || "") + '"><span class="ico st-done">' + statusIcon("done", 11) + "</span>" +
+                  '<span class="t">' + esc(t.title || t.name || "") + "</span></div>";
+              }).join("") + "</details>"
+            : "") +
+        "</div>" +
       "</div>" +
 
-      '<div class="pane w5">' +
-        '<div class="p-head"><span class="pt">Wissens-Index</span><span class="sp"></span></div>' +
-        prow("<b>Decisions</b>", String(knowCounts.decisions || 0), "c") +
-        prow("<b>Lektionen</b>", String(knowCounts.lektionen || 0), "") +
-        prow("<b>Memory</b>", String(knowCounts.memory || 0), "") +
-        prow("<b>Docs</b>", String(knowCounts.docs || 0), "") +
+      '<div class="ov-col ov-col-r">' +
+        // CLAUDE.md card (top) — clickable → modal
+        '<div class="pane ov-click" data-open="claude">' +
+          '<div class="p-head"><span class="pt">CLAUDE.md</span>' +
+            (claudeTok ? '<span class="pc">~' + fmtTok(claudeTok) + " tok</span>" : "") +
+          '<span class="sp"></span><span class="pc">öffnen ›</span></div>' +
+        "</div>" +
+        // Decisions card
         (decisionItems.length
-          ? '<div class="p-head" style="margin-top:18px;"><span class="pt">Decisions</span><span class="sp"></span></div>' +
-            decisionItems.slice(0, 5).map(function(x) {
-              return prow("<b>#" + esc(String(x.id || "")) + "</b> " + esc(x.name ? String(x.name).replace(/^\d+\s—\s/, "") : ""), esc(x.status || ""), "g");
-            }).join("")
+          ? '<div class="pane"><div class="p-head"><span class="pt">Decisions</span><span class="pc">' + decisionItems.length + '</span><span class="sp"></span></div>' +
+            decisionItems.map(function(x, i) {
+              return '<div class="prow ov-click" data-open="decision" data-idx="' + i + '"><span class="pl"><b>#' + esc(String(x.id || "")) + '</b> ' + esc(x.name ? String(x.name).replace(/^\d+\s—\s/, "") : "") + '</span><span class="pr g">' + esc(x.status || "") + "</span></div>";
+            }).join("") + "</div>"
           : "") +
+        // Lektionen card
+        (lessonItems.length
+          ? '<div class="pane"><div class="p-head"><span class="pt">Lektionen</span><span class="pc">' + lessonItems.length + '</span><span class="sp"></span></div>' +
+            lessonItems.map(function(x) {
+              return '<div class="prow ov-click" data-open="lektion" data-name="' + esc(x.name || "") + '"><span class="pl">' + esc(String(x.name || "").replace(/\.md$/, "")) + '</span><span class="pr">' + esc(x.date || "") + "</span></div>";
+            }).join("") + "</div>"
+          : "") +
+        // Docs card (only if present)
+        (docItems.length
+          ? '<div class="pane"><div class="p-head"><span class="pt">Docs</span><span class="pc">' + docItems.length + '</span><span class="sp"></span></div>' +
+            docItems.map(function(x) {
+              return '<div class="prow ov-click" data-open="doc" data-name="' + esc(x.name || "") + '"><span class="pl">' + esc(x.title || x.name || "") + '</span><span class="pr c">' + esc(x.date || "") + "</span></div>";
+            }).join("") + "</div>"
+          : "") +
+        // Memory card — ALL files
+        '<div class="pane"><div class="p-head"><span class="pt">Memory</span><span class="pc">' + memItems.length + '</span><span class="sp"></span></div>' +
+          (memItems.length
+            ? memItems.map(function(m) { return '<div class="prow ov-click" data-open="memory" data-name="' + esc(m.name || "") + '"><span class="pl">' + esc(m.name || "") + '</span><span class="pr c">' + esc(m.date || "") + "</span></div>"; }).join("")
+            : '<div style="color:var(--faint);font-size:11px;padding:6px 0">Keine Memory-Dateien</div>') +
+        "</div>" +
+        // Changelog card — click opens the full changelog (sections like CLAUDE.md)
         (changelogItems.length
-          ? '<div class="p-head" style="margin-top:18px;"><span class="pt">Changelog</span><span class="pc">' + changelogItems.length + "</span><span class=\"sp\"></span></div>" +
-            changelogItems.slice(0, 5).map(function(x) {
-              var clb = x.desc ? String(x.desc).split("\n")[0] : "";
-              return '<div class="cl-ov"><div class="cl-ov-h">' + esc(x.name || "") + "</div>" +
-                (clb ? '<div class="cl-ov-b">' + esc(clb) + "</div>" : "") + "</div>";
-            }).join("")
+          ? '<div class="pane ov-click" data-open="changelog-all"><div class="p-head"><span class="pt">Changelog</span><span class="pc">' + changelogItems.length + '</span><span class="sp"></span><span class="pc">öffnen ›</span></div></div>'
           : "") +
       "</div>" +
 
-      // Aufgaben-Reihe — tn links, backlog rechts
-      '<div class="pane w5">' +
-        '<div class="p-head"><span class="pt">Tasknotes · tn</span><span class="pc">' + tnCount + "</span>" +
-          '<span class="sp"></span><span class="src-tag">Tasknotes</span></div>' +
-        (tnCount
-          ? TN_SECS_DEF.map(tnSectionHtml).join("")
-          : '<div style="color:var(--faint);font-size:11px;padding:6px 0">Keine tn-Tasks</div>') +
-      "</div>" +
-
-      '<div class="pane w7">' +
-        '<div class="p-head"><span class="pt">Backlog · Meilensteine &amp; Subtasks</span>' +
-          '<span class="pc">' + backlogOpen + " offen</span>" +
-          '<span class="sp"></span><span class="src-tag">Backlog.md</span></div>' +
-        (msOrder.length
-          ? msOrder.map(function(msName) { return msBlock(msName, msMap[msName]); }).join("")
-          : '<div style="color:var(--faint);font-size:11px;padding:6px 0">Keine offenen Meilensteine</div>') +
-        (blDoneItems.length
-          ? '<details style="margin-top:8px"><summary style="font-size:10px;color:var(--dim);cursor:pointer;padding:4px 0">Done <span style="color:var(--faint)">' + blDoneItems.length + "</span></summary>" +
-            blDoneItems.map(function(t) {
-              return '<div class="sub sub-done"><span class="ico st-done">' + statusIcon("done", 11) + "</span>" +
-                '<span class="t">' + esc(t.title || t.name || "") + "</span></div>";
-            }).join("") + "</details>"
-          : "") +
-      "</div>" +
-
-      "</div></div>"; // panes + ovwrap
+      "</div></div>"; // ov-cols + ovwrap
 
     d.innerHTML = html;
     list.innerHTML = "";
+    // Click-to-modal for knowledge entries + tasks (delegated; onclick avoids listener stacking).
+    d.onclick = function (e) {
+      var t = e.target.closest ? e.target.closest("[data-open]") : null;
+      if (!t) return;
+      var kind = t.getAttribute("data-open");
+      if (kind === "task") {
+        openTaskDetail({ file: t.getAttribute("data-file"), name: t.getAttribute("data-name"), title: t.getAttribute("data-title") });
+      } else if (kind === "tn") {
+        openTnDetail({ id: t.getAttribute("data-id"), name: t.getAttribute("data-name") });
+      } else if (kind === "decision") {
+        var dd = decisionItems[+t.getAttribute("data-idx")];
+        if (dd) showModal(String(dd.name || ""), String(dd.body || "(kein Inhalt)"));
+      } else if (kind === "changelog") {
+        var cc = changelogItems[+t.getAttribute("data-idx")];
+        if (cc) showModal(String(cc.name || "").replace(/^#{1,3}\s+/, ""), String(cc.body || "(kein Inhalt)"));
+      } else if (kind === "changelog-all") {
+        showModal("CHANGELOG", changelogItems.map(function (c) { return (c.name || "") + "\n\n" + (c.body || ""); }).join("\n\n"));
+      } else if (kind === "memory") {
+        openFileModal(t.getAttribute("data-name"), "memory", { name: t.getAttribute("data-name") });
+      } else if (kind === "lektion") {
+        openFileModal(t.getAttribute("data-name"), "lektion", { name: t.getAttribute("data-name") });
+      } else if (kind === "doc") {
+        openFileModal(t.getAttribute("data-name"), "docfile", { name: t.getAttribute("data-name") });
+      } else if (kind === "claude") {
+        openFileModal("CLAUDE.md", "claude-project", {});
+      }
+    };
   }
 
   /* ---------- overview (tmux grid) ---------- */

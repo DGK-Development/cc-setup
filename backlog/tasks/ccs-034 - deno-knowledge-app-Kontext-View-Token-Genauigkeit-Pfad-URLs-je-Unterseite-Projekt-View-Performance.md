@@ -3,11 +3,11 @@ id: CCS-034
 title: >-
   deno-knowledge-app: Kontext-View Token-Genauigkeit + Pfad-URLs je Unterseite +
   Projekt-View Performance
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-06-06 14:27'
-updated_date: '2026-06-06 18:15'
+updated_date: '2026-06-06 19:49'
 labels:
   - deno-knowledge-app
   - perf

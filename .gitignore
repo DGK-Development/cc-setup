@@ -12,3 +12,11 @@ __pycache__/
 .claude/worktrees/
 references/
 reference/
+
+# pi-orchestrator (CCS-035): build + runtime artifacts
+node_modules/
+logs/run-gates-*.log
+.pi/orchestrator-state.json
+.pi/orchestrator.lock
+.pi/orchestrator.kill
+.pi/agent-sessions/

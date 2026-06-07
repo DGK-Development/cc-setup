@@ -253,6 +253,7 @@ func BuildData(context map[string]any, view string) map[string]any {
 			"done":      done,
 			"desc":      aStr(t["desc"]),
 			"file":      aStr(t["file"]),
+			"mtime":     aNum(t["mtime"]),
 		}
 	}
 	tasks := []map[string]any{}
@@ -519,9 +520,9 @@ func BuildData(context map[string]any, view string) map[string]any {
 			map[string]any{"id": "changelog", "label": "CHANGELOG", "dot": ""},
 			map[string]any{"id": "docs", "label": "Docs", "dot": "c"},
 		}},
-		map[string]any{"g": "Git", "items": []any{map[string]any{"id": "git", "label": "Status & Actions", "dot": "g"}}},
+		map[string]any{"g": "Git", "items": []any{map[string]any{"id": "git", "label": "Git Status", "dot": "g"}}},
 		map[string]any{"g": "Backlog", "items": []any{
-			map[string]any{"id": "boards", "label": "Boards (tn + backlog)", "dot": "c", "cnt": itoa(backlogOpenN) + " / " + itoa(tnOpenN)},
+			map[string]any{"id": "boards", "label": "Boards", "dot": "c", "cnt": itoa(backlogOpenN) + " / " + itoa(tnOpenN)},
 		}},
 		map[string]any{"g": "Usage", "items": []any{
 			map[string]any{"id": "sessions", "label": "Sessions", "dot": "m", "tok": FmtCompact(sessionsTok)},
