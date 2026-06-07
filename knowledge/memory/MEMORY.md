@@ -3,6 +3,7 @@
 - [Org-Regel via Subagent-Isolation](org-rule-subagent-isolation.md) — dev≠review in einer Session: Dev-Subagent → Review-Subagent
 - [fallow Stop-Hook strippt Exporte](subagent-resume-file-revert.md) — cleanup-dispatch-stop.sh fährt `fallow fix --yes` bei Stop und entfernt `export` von Symbolen, deren Consumer fallow nicht sieht (.pi/ Dot-Dir, nur-Test); Fix via .fallowrc.json ignoreExports/entryPoints
 - [Auto-Sync-Push-Hazard](cc-setup-auto-sync-push-hazard.md) — Stop-Hook committet/pusht ungeprüft; vor Push immer git-State checken
+- [Logs-Redacted Slack-Token-Leak](logs-redacted-slack-token-leak.md) — "redacted"-Logs scrubben xoxb--Tokens nicht; Push Protection blockt; logs/ jetzt gitignored, nie unblock-Link klicken
 - [Flat-Migration-Stand](cc-setup-flat-migration.md) — ccs-flat fertig in-repo, 13 Commits ungepusht/nicht-deployed; Aktivierung = User-Review→push→just setup→Restart
 - [Redactor .doc-Substring-Falsepositive](redactor-doc-substring-falsepositive.md) — Bash-Args mit .doc/.xlsx/.pdf-Substring werden als Office-Datei geblockt
 - [Subagent-Self-Report verifizieren](subagent-selfreport-verify.md) — Dev-Subagent "Tests grün" unabhängig mit echten Task-Flags + End-to-End re-checken
