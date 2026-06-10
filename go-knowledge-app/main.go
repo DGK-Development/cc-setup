@@ -20,6 +20,7 @@ import (
 func main() {
 	cwdFlag := flag.String("cwd", ".", "repo directory to inspect")
 	portFlag := flag.String("port", "8765", "listen port")
+	hostFlag := flag.String("host", "127.0.0.1", "listen host (use 0.0.0.0 to expose on the LAN)")
 	noOpen := flag.Bool("no-open", false, "do not open the browser on start")
 	flag.Parse()
 
@@ -28,7 +29,13 @@ func main() {
 		cwd = *cwdFlag
 	}
 	port := *portFlag
-	urlStr := "http://127.0.0.1:" + port + "/"
+	host := *hostFlag
+	// Browser-URL: 0.0.0.0 ist keine erreichbare Ziel-Adresse → auf localhost zeigen.
+	browserHost := host
+	if browserHost == "0.0.0.0" || browserHost == "" {
+		browserHost = "127.0.0.1"
+	}
+	urlStr := "http://" + browserHost + ":" + port + "/"
 
 	if !*noOpen {
 		_ = exec.Command("open", urlStr).Start() // best-effort; ignore if unavailable
@@ -56,6 +63,6 @@ func main() {
 		AssetFS: assets.FS(),
 	})
 
-	srv := &http.Server{Addr: "127.0.0.1:" + port, Handler: handler}
+	srv := &http.Server{Addr: host + ":" + port, Handler: handler}
 	log.Fatal(srv.ListenAndServe())
 }

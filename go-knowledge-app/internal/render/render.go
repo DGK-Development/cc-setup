@@ -76,7 +76,9 @@ const readMaxChars = 60000
 var (
 	nameAlnumColon = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 	nameAlnum      = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-	fileMdName     = regexp.MustCompile(`^[A-Za-z0-9._\- ]+\.md$`)
+	// Backlog-Dateinamen enthalten Unicode (—), ':' '+' '(' ')' etc. Erlaubt wird
+	// alles ausser Pfad-Trennern; Traversal-Schutz liefert under() (filepath.Clean).
+	fileMdName = regexp.MustCompile(`^[^/\\]+\.md$`)
 )
 
 func under(child, parent string) bool {

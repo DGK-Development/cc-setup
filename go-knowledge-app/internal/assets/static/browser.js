@@ -661,7 +661,21 @@
         }
         if (grp !== curGroup) {
           curGroup = grp;
-          list.appendChild(el('<div class="li-group">' + esc(grp) + "</div>"));
+          var msLink = c.milestoneLinks && c.milestoneLinks[grp];
+          if (msLink && msLink.file) {
+            (function (link) {
+              var gh = el(
+                '<div class="li-group li-group-link" title="Milestone-Task öffnen">' +
+                  esc(grp) + ' <span class="li-group-id">' + esc(link.id) + "</span></div>",
+              );
+              gh.addEventListener("click", function () {
+                openTaskDetail({ file: link.file, name: link.id, title: link.title });
+              });
+              list.appendChild(gh);
+            })(msLink);
+          } else {
+            list.appendChild(el('<div class="li-group">' + esc(grp) + "</div>"));
+          }
         }
         list.appendChild(makeRow(r));
       });
@@ -1459,24 +1473,43 @@
 
     // ---- backlog milestones (COLL.backlog.items grouped by milestone) ----
     var blItems = (COLL["backlog"] || {}).items || [];
-    // Group non-done tasks by milestone
-    var msMap = {}, msOrder = [];
+    var msLinks = (COLL["backlog"] || {}).milestoneLinks || {};
+    // Merge-Key: Milestones, deren milestone-String auf denselben Definer-Parent
+    // zeigt (z.B. "HIR-006" + "Spec D …" → beide HIR-006), werden zu EINEM Block
+    // verschmolzen. So erscheinen alle Subtasks eines Specs zusammen.
+    function msKeyOf(ms) {
+      var link = msLinks[ms];
+      return (link && link.id) ? ("def:" + link.id) : ("ms:" + ms);
+    }
+    var grpMap = {}, grpOrder = [], grpLabel = {}, grpLink = {};
     blItems.forEach(function(it) {
-      if (it.done) return;
-      var msName = it.milestone || "(ohne Milestone)";
-      if (!msMap[msName]) { msMap[msName] = []; msOrder.push(msName); }
-      msMap[msName].push(it);
+      var ms = it.milestone || "(ohne Milestone)";
+      var key = msKeyOf(ms);
+      if (!grpMap[key]) { grpMap[key] = []; grpOrder.push(key); grpLabel[key] = ms; grpLink[key] = msLinks[ms] || null; }
+      grpMap[key].push(it);
+      // Beschreibendes Label bevorzugen statt der nackten Parent-ID.
+      var link = msLinks[ms];
+      if (link && link.id && ms !== link.id) { grpLabel[key] = ms; grpLink[key] = link; }
+      else if (!grpLink[key] && link) { grpLink[key] = link; }
     });
-    var blDoneItems = blItems.filter(function(it) { return it.done; });
+    // Laufende Milestones (>=1 offener Task) vs. komplett fertige trennen.
+    var runningKeys = [], doneOnlyKeys = [];
+    grpOrder.forEach(function(key) {
+      (grpMap[key].some(function(t) { return !t.done; }) ? runningKeys : doneOnlyKeys).push(key);
+    });
 
-    // milestone block HTML
-    function msBlock(msName, tasks) {
+    // milestone block HTML — zeigt offene UND done Tasks (offen zuerst, done gedimmt).
+    function msBlock(label, tasks, link) {
       var openN = tasks.filter(function(t) { return !t.done; }).length;
       var totalN = tasks.length;
       var allDone = openN === 0;
       var cls = allDone ? " ms-done" : "";
       var countStr = allDone ? "fertig" : (openN + "/" + totalN + " offen");
-      var subs = tasks.map(function(t) {
+      // offen zuerst, dann done (stabiler Sort erhält Server-Reihenfolge je Gruppe).
+      var ordered = tasks.slice().sort(function(a, b) {
+        return (a.done === b.done) ? 0 : (a.done ? 1 : -1);
+      });
+      var subs = ordered.map(function(t) {
         var st = String(t.status || "").toLowerCase();
         var stCls = (st === "done") ? "done"
           : (st.indexOf("progress") >= 0) ? "wip" : "todo";
@@ -1485,9 +1518,11 @@
           '<span class="ico st-' + stCls + '">' + statusIcon(stCls, 11) + "</span>" +
           '<span class="t">' + esc(t.title || t.name || "") + "</span></div>";
       }).join("");
+      var headT = (link && link.file)
+        ? '<span class="ms-t ov-click" data-open="task" data-file="' + esc(link.file) + '" data-name="' + esc(link.id || "") + '" data-title="' + esc(link.title || "") + '" title="Milestone-Task öffnen">' + esc(label) + "</span>"
+        : '<span class="ms-t">' + esc(label) + "</span>";
       return '<div class="ms' + cls + '">' +
-        '<div class="ms-head">' +
-        '<span class="ms-t">' + esc(msName) + "</span>" +
+        '<div class="ms-head">' + headT +
         '<span class="ms-count">' + countStr + "</span></div>" +
         (subs ? '<div class="ms-sub">' + subs + "</div>" : "") +
         "</div>";
@@ -1590,15 +1625,26 @@
           '<div class="p-head"><span class="pt">Backlog · Meilensteine &amp; Subtasks</span>' +
             '<span class="pc">' + backlogOpen + " offen</span>" +
             '<span class="sp"></span><span class="src-tag">Backlog.md</span></div>' +
-          (msOrder.length
-            ? msOrder.map(function(msName) { return msBlock(msName, msMap[msName]); }).join("")
+          (runningKeys.length
+            ? runningKeys.map(function(key) { return msBlock(grpLabel[key], grpMap[key], grpLink[key]); }).join("")
             : '<div style="color:var(--faint);font-size:11px;padding:6px 0">Keine offenen Meilensteine</div>') +
-          (blDoneItems.length
-            ? '<details style="margin-top:8px"><summary style="font-size:10px;color:var(--dim);cursor:pointer;padding:4px 0">Done <span style="color:var(--faint)">' + blDoneItems.length + "</span></summary>" +
-              blDoneItems.map(function(t) {
-                return '<div class="sub sub-done ov-click" data-open="task" data-file="' + esc(t.file || "") + '" data-name="' + esc(t.name || "") + '" data-title="' + esc(t.title || "") + '"><span class="ico st-done">' + statusIcon("done", 11) + "</span>" +
-                  '<span class="t">' + esc(t.title || t.name || "") + "</span></div>";
-              }).join("") + "</details>"
+          // Komplett fertige Milestones: untere "Done"-Klappbox, nach Milestone gruppiert.
+          (doneOnlyKeys.length
+            ? (function() {
+                var totalDone = doneOnlyKeys.reduce(function(s, key) { return s + grpMap[key].length; }, 0);
+                return '<details style="margin-top:8px"><summary style="font-size:10px;color:var(--dim);cursor:pointer;padding:4px 0">Done <span style="color:var(--faint)">' + totalDone + "</span></summary>" +
+                  doneOnlyKeys.map(function(key) {
+                    var link = grpLink[key];
+                    var hdr = (link && link.file)
+                      ? '<div class="msd-h ov-click" data-open="task" data-file="' + esc(link.file) + '" data-name="' + esc(link.id || "") + '" data-title="' + esc(link.title || "") + '">' + esc(grpLabel[key]) + "</div>"
+                      : '<div class="msd-h">' + esc(grpLabel[key]) + "</div>";
+                    var rows = grpMap[key].map(function(t) {
+                      return '<div class="sub sub-done ov-click" data-open="task" data-file="' + esc(t.file || "") + '" data-name="' + esc(t.name || "") + '" data-title="' + esc(t.title || "") + '"><span class="ico st-done">' + statusIcon("done", 11) + "</span>" +
+                        '<span class="t">' + esc(t.title || t.name || "") + "</span></div>";
+                    }).join("");
+                    return hdr + rows;
+                  }).join("") + "</details>";
+              })()
             : "") +
         "</div>" +
       "</div>" +

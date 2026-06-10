@@ -215,10 +215,55 @@ func BuildData(context map[string]any, view string) map[string]any {
 		return 5
 	}
 	blTasks := aArr(bl["tasks"])
+
+	// Milestone-Definer-Erkennung: Ein Task, dessen id == parent_task_id der
+	// Subtasks eines Milestones ist, *definiert* diesen Milestone. Sein Titel
+	// verlinkt die Gruppen-Ueberschrift (milestoneLinks); er selbst wird aus der
+	// Task-Liste ausgeblendet, statt faelschlich als "ohne Milestone" zu erscheinen.
+	taskByID := map[string]map[string]any{}
+	for _, raw := range blTasks {
+		t := aMap(raw)
+		if id := aStr(t["id"]); id != "" {
+			taskByID[id] = t
+		}
+	}
+	msParent := map[string]string{}
+	msParentConflict := map[string]bool{}
+	for _, raw := range blTasks {
+		t := aMap(raw)
+		ms, par := aStr(t["milestone"]), aStr(t["parent"])
+		if ms == "" || ms == "—" || par == "" {
+			continue
+		}
+		if prev, ok := msParent[ms]; ok {
+			if prev != par {
+				msParentConflict[ms] = true
+			}
+		} else {
+			msParent[ms] = par
+		}
+	}
+	milestoneLinks := map[string]any{}
+	hideIDs := map[string]bool{}
+	for ms, par := range msParent {
+		if msParentConflict[ms] {
+			continue // mehrdeutiger Parent → kein eindeutiger Definer, nicht verlinken
+		}
+		pt, ok := taskByID[par]
+		if !ok {
+			continue // Parent-Task existiert nicht als Datei → nichts zu verlinken
+		}
+		milestoneLinks[ms] = map[string]any{"id": par, "file": aStr(pt["file"]), "title": aStr(pt["title"])}
+		hideIDs[par] = true
+	}
+
 	openTasks := []map[string]any{}
 	doneTasks := []map[string]any{}
 	for _, raw := range blTasks {
 		t := aMap(raw)
+		if hideIDs[aStr(t["id"])] {
+			continue // Milestone-Definer → erscheint als Gruppen-Header-Link, nicht als Zeile
+		}
 		if lowerTrim(t["status"]) == "done" {
 			doneTasks = append(doneTasks, t)
 		} else {
@@ -486,7 +531,7 @@ func BuildData(context map[string]any, view string) map[string]any {
 		"lessons":   map[string]any{"title": "Lektionen", "scope": "wissen", "type": "lesson", "accent": "a", "items": lessons},
 		"changelog": map[string]any{"title": "CHANGELOG", "scope": "wissen", "type": "changelog", "accent": "", "items": changelog},
 		"docs":      map[string]any{"title": "Docs", "scope": "wissen", "type": "doc", "accent": "c", "items": docs},
-		"backlog":   map[string]any{"title": "Tasks", "scope": "backlog", "type": "task", "accent": "a", "items": tasks},
+		"backlog":   map[string]any{"title": "Tasks", "scope": "backlog", "type": "task", "accent": "a", "items": tasks, "milestoneLinks": milestoneLinks},
 		"tn":        map[string]any{"title": "tn", "scope": "backlog", "type": "task", "accent": "c", "items": tnItems},
 		"sessions":  map[string]any{"title": "Sessions", "scope": "usage", "type": "session", "accent": "m", "items": sessions},
 	}

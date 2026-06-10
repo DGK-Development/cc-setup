@@ -159,7 +159,7 @@ func resolveVault() string {
 	if env := os.Getenv("TASKNOTES_VAULT"); env != "" {
 		return env
 	}
-	def := filepath.Join(Home(), "GITHUB", "ObsidianPKM")
+	def := filepath.Join(Home(), "git", "ObsidianPKM")
 	if _, err := os.Stat(def); err == nil {
 		return def
 	}

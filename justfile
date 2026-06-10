@@ -68,15 +68,22 @@ deno port="8765":
     echo "knowledge (deno) → http://127.0.0.1:{{port}}/  · Live-Reload via --watch"
     cd deno-knowledge-app && exec deno task dev --cwd .. --port {{port}} --no-open
 
-# Single-Pane-Status-Dashboard (Go-Port) auf 127.0.0.1 starten + Browser oeffnen.
-# Stoppt ZUERST alle laufenden Instanzen (Go + Deno) → kein Port-Konflikt auf 8765.
-go port="8765":
+# Single-Pane-Status-Dashboard (Go-Port) starten + Browser oeffnen.
+# Default host=0.0.0.0 → im LAN erreichbar (via VM-IP). Fuer rein lokal: `just go 8765 127.0.0.1`.
+# Loescht ZUERST den Aggregat-Cache (frische Discovery) + stoppt laufende Instanzen (Go + Deno).
+go port="8765" host="0.0.0.0":
     #!/usr/bin/env bash
     pkill -f "go-knowledge-app" 2>/dev/null || true
     pkill -f "deno run.*main\.ts.*--cwd" 2>/dev/null || true
+    rm -f "${CC_KNOWLEDGE_CACHE:-$HOME/.cache/cc-knowledge/cache.json}"
     sleep 1
-    echo "knowledge (go) → http://127.0.0.1:{{port}}/"
-    cd go-knowledge-app && exec go run . --cwd .. --port {{port}}
+    if [ "{{host}}" = "0.0.0.0" ]; then
+      lan_ip=$(hostname -I | awk '{print $1}')
+      echo "knowledge (go) → lokal: http://127.0.0.1:{{port}}/  ·  LAN: http://${lan_ip}:{{port}}/"
+    else
+      echo "knowledge (go) → http://{{host}}:{{port}}/"
+    fi
+    cd go-knowledge-app && exec go run . --cwd .. --port {{port}} --host {{host}}
 
 # Go-Build-Gate: kompiliert + vettet + gofmt-Check (kein Server-Start).
 go-build:

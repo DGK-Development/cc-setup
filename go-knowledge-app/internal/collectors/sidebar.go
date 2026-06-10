@@ -92,7 +92,7 @@ func tnTaskCounts() map[string]int {
 }
 
 // ProjectRoots returns the scan roots: CC_KNOWLEDGE_ROOTS (comma-separated)
-// overrides; default DG + private.
+// overrides; default ~/git.
 func ProjectRoots() []string {
 	if env := os.Getenv("CC_KNOWLEDGE_ROOTS"); env != "" {
 		parts := strings.Split(env, ",")
@@ -104,7 +104,7 @@ func ProjectRoots() []string {
 		}
 		return out
 	}
-	return []string{filepath.Join(Home(), "GITHUB_DG"), filepath.Join(Home(), "GITHUB")}
+	return []string{filepath.Join(Home(), "git")}
 }
 
 // DiscoverProjectsIn scans roots for directories containing backlog/. Dedupe by

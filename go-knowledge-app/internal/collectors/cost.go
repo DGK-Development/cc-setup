@@ -17,7 +17,7 @@ func usageDir() string {
 	if env := os.Getenv("PKM_USAGE_DIR"); env != "" {
 		return env
 	}
-	return filepath.Join(Home(), "GITHUB", "ObsidianPKM", "skripte", "usage")
+	return filepath.Join(Home(), "git", "ObsidianPKM", "skripte", "usage")
 }
 
 type dailyRow struct {

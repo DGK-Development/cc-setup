@@ -66,6 +66,9 @@ const extraCSS = `
 .mp-list .li-group{ position:sticky; top:0; z-index:1; font-size:9.5px; letter-spacing:.12em;
   text-transform:uppercase; color:var(--amber); background:var(--panel);
   padding:9px 13px 5px; border-bottom:1px solid var(--line); }
+.mp-list .li-group-link{ cursor:pointer; }
+.mp-list .li-group-link:hover{ text-decoration:underline; }
+.mp-list .li-group-link .li-group-id{ opacity:.6; font-weight:600; }
 .mp-list details.done-grp{ border-top:1px solid var(--line-2); }
 .mp-list details.done-grp > summary{ list-style:none; cursor:pointer; font-size:9.5px;
   letter-spacing:.12em; text-transform:uppercase; color:var(--dim);
@@ -294,6 +297,9 @@ const projectCSS = `
 .sub{ display:flex; align-items:center; gap:10px; padding:5px 0; }
 .sub .t{ font-size:12.5px; color:var(--fg-2); line-height:1.55; letter-spacing:.005em; }
 .sub-done .t{ color:var(--faint); text-decoration:line-through; text-decoration-color:var(--line-2); }
+.msd-h{ font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);
+  margin:8px 0 2px; padding:3px 0; }
+.msd-h.ov-click:hover{ color:var(--dim); }
 .tn-sec{ margin-bottom:14px; }
 .tn-sec:last-child{ margin-bottom:0; }
 .tn-sh{
